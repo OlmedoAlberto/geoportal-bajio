@@ -2617,9 +2617,20 @@ async function bootstrap() {
   }
 
   try {
-    const resMza = await fetch('MZA_GTO_POB.json');
+    const resMza = await fetch('https://raw.githubusercontent.com/OlmedoAlberto/geoportal-bajio/main/Bajio_Manzanas.json.gz');
     if (resMza.ok) {
-      const mzaData = await resMza.json();
+      const ds = new DecompressionStream('gzip');
+      const decompressed = resMza.body.pipeThrough(ds);
+      const reader = decompressed.getReader();
+      const chunks = [];
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+      }
+      const blob = new Blob(chunks);
+      const text = await blob.text();
+      const mzaData = JSON.parse(text);
       loadManzanas(mzaData);
       if (mzaData.features && mzaData.features.length > 0) {
         try {
@@ -2628,10 +2639,10 @@ async function bootstrap() {
         } catch(e) {}
       }
     } else {
-      console.warn('MZA_GTO_POB.json no encontrado.');
+      console.warn('Bajio_Manzanas.json.gz no encontrado en GitHub.');
     }
   } catch(e) {
-    console.warn('No se pudo cargar MZA_GTO_POB.json:', e.message);
+    console.warn('No se pudo cargar Bajio_Manzanas.json.gz:', e.message);
   }
 
   // Ocultar loader — siempre, independientemente de si cargaron los archivos

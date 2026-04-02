@@ -2681,6 +2681,12 @@ async function bootstrap() {
       }
 
       if (mzaData) {
+        // Detectar TopoJSON y convertir a GeoJSON
+        if (mzaData.type === 'Topology' && mzaData.objects) {
+          const objName = Object.keys(mzaData.objects)[0];
+          mzaData = topojson.feature(mzaData, mzaData.objects[objName]);
+          console.log('Convertido de TopoJSON a GeoJSON:', objName);
+        }
         loadManzanas(mzaData);
         if (mzaData.features && mzaData.features.length > 0) {
           try {

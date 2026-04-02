@@ -1,0 +1,3245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>S.I.G.Ex  🌎 Retail📌 .v3 — Análisis de Prospectos</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Google Maps API (necesario para capas de Google/Tráfico) -->
+<script>
+  // Cargamos la API de Google Maps de forma diferida para no bloquear el render
+  window._gmapsLoaded = false;
+  function loadGoogleMaps() {
+    if (window._gmapsLoaded) return;
+    window._gmapsLoaded = true;
+    var s = document.createElement('script');
+    s.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyD-9tSrke72PouQMnMX-a7eZSW0jkFMBWY&libraries=places&callback=onGoogleMapsReady';
+    s.async = true; s.defer = true;
+    document.head.appendChild(s);
+  }
+  window.onGoogleMapsReady = function() {
+    console.log('Google Maps API lista');
+    if (window._pendingGoogleLayer) window._pendingGoogleLayer();
+  };
+</script>
+<!-- Leaflet.GridLayer.GoogleMutant (tiles de Google en Leaflet) -->
+<script src="https://unpkg.com/leaflet.gridlayer.googlemutant@0.14.0/dist/Leaflet.GoogleMutant.js"></script>
+<!-- Turf.js para cálculos geoespaciales -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+<script src="https://unpkg.com/topojson-client@3/dist/topojson-client.min.js"></script>
+<!-- Chart.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- jsPDF + html2canvas para exportar PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+
+<style>
+  /* ===== RESET & VARIABLES ===== */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0c10;
+    --surface:   #111318;
+    --surface2:  #181c24;
+    --border:    #232835;
+    --accent:    #3b82f6;
+    --accent2:   #60a5fa;
+    --green:     #22c55e;
+    --orange:    #f97316;
+    --red:       #ef4444;
+    --amber:     #f59e0b;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --dim:       #334155;
+    --font-head: 'Syne', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --font-mono: 'DM Mono', monospace;
+    --radius:    8px;
+    --panel-w:   480px;
+  }
+
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 13px; }
+
+  /* ===== TOPBAR ===== */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 58px;
+    background: rgba(10,12,16,0.97);
+    border-bottom: 2px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18px; z-index: 1000;
+    backdrop-filter: blur(12px);
+  }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .logo-badge {
+    font-family: var(--font-head); font-weight: 800; font-size: 17px;
+    letter-spacing: -0.5px; color: var(--accent);
+    background: rgba(59,130,246,0.14); border: 1px solid rgba(59,130,246,0.3);
+    padding: 5px 12px; border-radius: 7px;
+  }
+  .topbar-title { font-family: var(--font-head); font-weight: 700; font-size: 19px; color: var(--text); opacity: 0.75; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+
+  #prospecto-input {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); font-family: var(--font-mono); font-size: 18px;
+    padding: 8px 18px; border-radius: 9px; width: 300px; outline: none;
+    transition: border-color 0.2s;
+  }
+  #prospecto-input:focus { border-color: var(--accent); }
+  #prospecto-input::placeholder { color: var(--muted); }
+
+  .filter-chips { display: flex; gap: 9px; }
+  .chip {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 17px; font-weight: 500;
+    padding: 6px 15px; border-radius: 30px; cursor: pointer;
+    border: 1px solid transparent; transition: all 0.15s; user-select: none;
+  }
+  .chip.maxi  { background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: var(--accent2); }
+  .chip.tipoa { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.35); color: var(--amber); }
+  .chip.tipob { background: rgba(249,115,22,0.12); border-color: rgba(249,115,22,0.35); color: var(--orange); }
+  .chip.off   { opacity: 0.35; filter: grayscale(1); }
+  .chip-dot   { width: 11px; height: 11px; border-radius: 50%; }
+  .chip.maxi .chip-dot  { background: var(--accent); }
+  .chip.tipoa .chip-dot { background: var(--amber); }
+  .chip.tipob .chip-dot { background: var(--orange); }
+
+  /* ===== MAP ===== */
+  #map {
+    position: fixed; top: 58px; left: 0; right: 0; bottom: 0;
+    z-index: 1;
+  }
+
+  /* ===== PANEL IZQUIERDO ===== */
+  #panel {
+    position: fixed; top: 58px; left: 0; width: var(--panel-w);
+    bottom: 0; z-index: 500; display: flex; flex-direction: column;
+    background: rgba(10,12,16,0.92); border-right: 1px solid var(--border);
+    backdrop-filter: blur(16px); overflow: hidden;
+  }
+
+  /* Área de influencia */
+  .section {
+    border-bottom: 1px solid var(--border); padding: 14px 18px;
+    flex-shrink: 0;
+  }
+  .section-title {
+    font-family: var(--font-head); font-weight: 800; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.6px; color: var(--text);
+    margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .section-title::before {
+    content: ''; width: 4px; height: 13px; background: var(--accent);
+    border-radius: 2px; display: inline-block; flex-shrink: 0;
+  }
+
+  /* Radio / Isócrona tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 10px; }
+  .tab-btn {
+    flex: 1; padding: 7px; font-family: var(--font-mono); font-size: 14px;
+    font-weight: 800; border: 1px solid var(--border); border-radius: 6px;
+    background: transparent; color: var(--muted); cursor: pointer;
+    transition: all 0.15s; letter-spacing: 0.3px;
+  }
+  .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Slider */
+  .slider-row { display: flex; align-items: center; gap: 10px; }
+  .slider-label { font-family: var(--font-mono); font-size: 13px; color: var(--muted); flex-shrink: 0; }
+  .slider-val { font-family: var(--font-mono); font-size: 13px; color: var(--accent2); font-weight: 500; min-width: 56px; text-align: right; }
+  input[type=range] {
+    flex: 1; accent-color: var(--accent); height: 3px; cursor: pointer;
+  }
+
+  /* Btn centrar / usar centro */
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn {
+    flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-family: var(--font-body);
+    font-size: 13px; cursor: pointer; transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent2); }
+
+  /* ===== Stats scroll area ===== */
+  #stats-area {
+    flex: 1; overflow-y: auto; padding: 0;
+  }
+  #stats-area::-webkit-scrollbar { width: 4px; }
+  #stats-area::-webkit-scrollbar-track { background: transparent; }
+  #stats-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* Mercado card */
+  .mercado-card {
+    background: linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.04));
+    border: 1px solid rgba(59,130,246,0.2); border-radius: var(--radius);
+    padding: 16px; margin: 12px 18px;
+  }
+  .mercado-val {
+    font-family: var(--font-head); font-weight: 800; font-size: 29px;
+    color: var(--accent); letter-spacing: -1px;
+  }
+  .mercado-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .mercado-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .mg-cell {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px; text-align: center;
+  }
+  .mg-label { font-size: 14px; font-weight: 800; font-family: var(--font-head); color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+  .mg-val { font-family: var(--font-head); font-weight: 700; font-size: 15px; margin-top: 3px; }
+  .mg-val.res { color: #a78bfa; }
+  .mg-val.cer { color: var(--amber); }
+  .mg-val.pol { color: var(--green); }
+
+  /* Participacion slider */
+  .part-section { padding: 12px 18px; border-bottom: 1px solid var(--border); }
+  .part-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .part-val { font-family: var(--font-head); font-weight: 700; font-size: 20px; color: var(--text); }
+  input#part-slider { width: 100%; margin: 6px 0; }
+
+  /* Conquista card */
+  .conquista-card {
+    background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2);
+    border-radius: var(--radius); padding: 12px 18px; margin: 0 18px 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .conquista-label { font-size: 13px; color: var(--green); font-weight: 600; }
+  .conquista-val { font-family: var(--font-head); font-weight: 800; font-size: 24px; color: var(--green); }
+
+  /* Charts */
+  .chart-wrap { padding: 12px 18px; }
+  .chart-title { font-size: 13px; color: var(--muted); margin-bottom: 10px; font-weight: 500; }
+  .chart-canvas { max-height: 160px; }
+
+  /* Sucursales */
+  .suc-list { padding: 0 18px 8px; }
+  .suc-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid var(--border);
+  }
+  .suc-row:last-child { border-bottom: none; }
+  .suc-left { display: flex; align-items: center; gap: 9px; }
+  .suc-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .suc-name { font-weight: 500; font-size: 13px; }
+  .suc-count { font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+  .sat-tag {
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 10px;
+    font-family: var(--font-mono);
+  }
+  .sat-oport { background: rgba(34,197,94,0.15); color: var(--green); }
+  .sat-inter  { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .sat-na     { background: rgba(100,116,139,0.15); color: var(--muted); }
+
+  /* Export buttons */
+  .export-row {
+    display: flex; gap: 8px; padding: 14px 18px;
+    border-top: 1px solid var(--border); flex-shrink: 0;
+  }
+
+  /* ===== POPUP personalizado ===== */
+  .leaflet-popup-content-wrapper {
+    background: var(--surface) !important; color: var(--text) !important;
+    border: 1px solid var(--border) !important; border-radius: 8px !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5) !important;
+  }
+  .leaflet-popup-tip { background: var(--surface) !important; }
+  .leaflet-popup-content { margin: 10px 14px !important; }
+
+  .pop-title { font-family: var(--font-head); font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+  .pop-row { display: flex; justify-content: space-between; gap: 16px; font-size: 11px; margin: 2px 0; color: var(--muted); }
+  .pop-row span:last-child { color: var(--text); font-weight: 500; }
+
+  /* ===== Tooltip manzana ===== */
+  .mza-tooltip {
+    background: rgba(10,12,16,0.95) !important; border: 1px solid var(--border) !important;
+    color: var(--text) !important; font-family: var(--font-mono) !important;
+    font-size: 11px !important; border-radius: 6px !important;
+    padding: 6px 10px !important; box-shadow: 0 4px 16px rgba(0,0,0,0.4) !important;
+  }
+
+  /* ===== Leyenda ===== */
+  #legend {
+    position: fixed; bottom: 20px; right: 16px; z-index: 600;
+    background: rgba(10,12,16,0.92); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px 26px; backdrop-filter: blur(10px);
+    font-size: 17px; min-width: 228px;
+  }
+  .leg-title { font-family: var(--font-head); font-weight: 700; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 13px; }
+  .leg-row { display: flex; align-items: center; gap: 13px; margin: 7px 0; font-size: 17px; }
+  .leg-dot { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; }
+  .leg-swatch { width: 26px; height: 17px; border-radius: 3px; flex-shrink: 0; }
+
+  /* ===== Loading ===== */
+  #loader {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 9999; transition: opacity 0.4s;
+  }
+  .loader-logo { font-family: var(--font-head); font-weight: 800; font-size: 32px; color: var(--accent); margin-bottom: 16px; }
+  .loader-bar { width: 200px; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .loader-fill { height: 100%; background: var(--accent); width: 0; animation: load 1.2s ease forwards; }
+  @keyframes load { to { width: 100%; } }
+  .loader-msg { font-family: var(--font-mono); font-size: 11px; color: var(--muted); margin-top: 10px; }
+
+  /* ===== No data state ===== */
+  .no-data {
+    text-align: center; padding: 30px 14px; color: var(--muted);
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .no-data-icon { font-size: 28px; margin-bottom: 8px; }
+
+  /* Density bar */
+  .dens-bar-wrap { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  .dens-bar-bg { flex: 1; height: 4px; background: var(--border); border-radius: 2px; }
+  .dens-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(to right, var(--green), var(--amber), var(--red)); }
+  .dens-val { font-family: var(--font-mono); font-size: 10px; color: var(--muted); min-width: 60px; text-align: right; }
+
+  /* ===== SELECTOR DE MAPA BASE ===== */
+  #basemap-selector {
+    position: fixed;
+    bottom: 20px;
+    left: var(--panel-w);
+    right: 0;
+    z-index: 600;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+    transition: left 0.3s;
+  }
+  #basemap-selector-inner {
+    display: flex;
+    gap: 8px;
+    background: rgba(10,12,16,0.92);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    backdrop-filter: blur(10px);
+    pointer-events: all;
+  }
+  .bmap-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 11px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--surface2);
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.15s;
+    white-space: nowrap;
+    user-select: none;
+    min-width: 86px;
+  }
+  .bmap-btn:hover { border-color: var(--accent2); color: var(--accent2); }
+  .bmap-btn.active { background: rgba(59,130,246,0.18); border-color: var(--accent); color: var(--accent2); }
+  .bmap-btn.active.google-road { background: rgba(34,197,94,0.15); border-color: var(--green); color: var(--green); }
+  .bmap-btn.active.google-sat  { background: rgba(245,158,11,0.15); border-color: var(--amber); color: var(--amber); }
+  .bmap-btn.active.google-traf { background: rgba(239,68,68,0.15); border-color: var(--red); color: var(--red); }
+  .bmap-icon { font-size: 26px; line-height: 1; }
+
+  /* Isócrona mode buttons */
+  .iso-mode-btn {
+    flex: 1; padding: 6px 4px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--muted); font-size: 16px;
+    cursor: pointer; transition: all 0.15s; text-align: center;
+  }
+  .iso-mode-btn.active { background: rgba(59,130,246,0.18); border-color: var(--accent); }
+  .iso-mode-btn:hover { border-color: var(--accent2); }
+
+  /* ===== DRAW TOOLBAR FLOTANTE ===== */
+  #draw-toolbar {
+    position: fixed;
+    top: 50%;
+    right: 18px;
+    transform: translateY(-50%);
+    z-index: 700;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: rgba(10,12,16,0.94);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 10px 8px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    transition: all 0.25s cubic-bezier(.4,0,.2,1);
+  }
+  .draw-toolbar-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 2px 4px 8px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2px; cursor: pointer; user-select: none;
+  }
+  .draw-toolbar-label {
+    font-family: var(--font-head); font-weight: 700; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted);
+    white-space: nowrap;
+  }
+  .draw-collapse-icon {
+    font-size: 12px; color: var(--muted); transition: transform 0.25s;
+    line-height: 1; flex-shrink: 0;
+  }
+  .draw-collapse-icon.open { transform: rotate(180deg); }
+  .draw-tools-body {
+    display: flex; flex-direction: column; gap: 5px;
+    overflow: hidden;
+    max-height: 500px;
+    transition: max-height 0.3s cubic-bezier(.4,0,.2,1), opacity 0.2s;
+    opacity: 1;
+  }
+  .draw-tools-body.hidden { max-height: 0; opacity: 0; pointer-events: none; }
+  .dtool-btn {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 12px; border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--surface2); color: var(--muted);
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    text-align: left; width: 100%;
+  }
+  .dtool-btn:hover { border-color: rgba(139,92,246,0.6); color: #a78bfa; background: rgba(139,92,246,0.1); }
+  .dtool-btn.active { background: rgba(139,92,246,0.18); border-color: rgba(139,92,246,0.7); color: #c4b5fd; box-shadow: 0 0 10px rgba(139,92,246,0.2); }
+  .dtool-btn.danger:hover { border-color: rgba(239,68,68,0.6); color: #f87171; background: rgba(239,68,68,0.1); }
+  .dtool-btn.export-act:hover { border-color: rgba(34,197,94,0.6); color: #4ade80; background: rgba(34,197,94,0.1); }
+  .dtool-btn.export-act2:hover { border-color: rgba(251,191,36,0.6); color: #fbbf24; background: rgba(251,191,36,0.1); }
+  .dtool-icon { font-size: 15px; flex-shrink: 0; }
+  .dtool-divider { height: 1px; background: var(--border); margin: 3px 0; border-radius: 1px; }
+
+  /* Hint mientras dibuja */
+  #draw-hint {
+    position: fixed; bottom: 90px;
+    left: 50%; transform: translateX(-50%);
+    z-index: 750;
+    background: rgba(139,92,246,0.92);
+    color: #fff; font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+    padding: 7px 18px; border-radius: 20px;
+    pointer-events: none; white-space: nowrap;
+    opacity: 0; transition: opacity 0.2s;
+    letter-spacing: 0.3px;
+  }
+  #draw-hint.show { opacity: 1; }
+
+  /* Panel resultados polígono */
+  #poly-stats-panel {
+    position: fixed;
+    top: 70px; right: 82px;
+    z-index: 650;
+    width: 210px;
+    background: rgba(10,12,16,0.96);
+    border: 1px solid rgba(139,92,246,0.45);
+    border-radius: 12px; padding: 14px 16px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(139,92,246,0.1);
+    display: none;
+    animation: fadeSlideIn 0.25s ease;
+  }
+  @keyframes fadeSlideIn { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }
+  .psp-title { font-family: var(--font-head); font-weight: 800; font-size: 12px; text-transform: uppercase; letter-spacing: 0.7px; color: #a78bfa; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .psp-title::before { content:''; width:3px; height:12px; background:#8b5cf6; border-radius:2px; display:inline-block; }
+  .psp-row { display: flex; justify-content: space-between; align-items: baseline; margin: 5px 0; }
+  .psp-label { font-size: 11px; color: var(--muted); font-family: var(--font-mono); }
+  .psp-val { font-family: var(--font-head); font-weight: 700; font-size: 13px; color: var(--text); }
+  .psp-big { font-size: 21px; color: #a78bfa; letter-spacing: -0.5px; }
+  .psp-divider { height: 1px; background: var(--border); margin: 8px 0; }
+  .psp-export-row { display: flex; gap: 6px; margin-top: 10px; }
+  .psp-exp-btn { flex: 1; padding: 6px 4px; border-radius: 7px; font-family: var(--font-mono); font-size: 10px; font-weight: 700; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.15s; text-align: center; }
+  .psp-exp-btn:hover { border-color: rgba(139,92,246,0.5); color: #a78bfa; }
+
+  /* Scrollbar global */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ===== MARCADORES TIENDAS CON PULSO ===== */
+  .tienda-marker {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .tienda-dot {
+    position: relative;
+    z-index: 2;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.85);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    display: block;
+    flex-shrink: 0;
+  }
+  .pulse-ring {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%) scale(1);
+    border-radius: 50%;
+    border: 2px solid var(--pc, #fff);
+    width: 100%; height: 100%;
+    opacity: 0.7;
+    animation: tiendaPulse var(--pd, 2s) ease-out infinite;
+    pointer-events: none;
+    z-index: 1;
+  }
+  @keyframes tiendaPulse {
+    0%   { transform: translate(-50%,-50%) scale(1);   opacity: 0.75; }
+    70%  { transform: translate(-50%,-50%) scale(3.2); opacity: 0.12; }
+    100% { transform: translate(-50%,-50%) scale(3.6); opacity: 0;    }
+  }
+
+  /* ===== CONSUMO EDITABLE ===== */
+  .consumo-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .consumo-cell {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 9px 10px; transition: border-color 0.2s;
+  }
+  .consumo-cell:focus-within { border-color: var(--accent); }
+  .consumo-cell label { display: block; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.6px; color: var(--muted); margin-bottom: 4px; }
+  .consumo-input {
+    width: 100%; background: transparent; border: none; outline: none;
+    font-family: var(--font-mono); font-size: 15px; font-weight: 500;
+    color: var(--text); text-align: center;
+  }
+  .consumo-unit { font-size: 10px; color: var(--muted); text-align: center; margin-top: 2px; }
+  .consumo-reset {
+    font-size: 11px; color: var(--muted); cursor: pointer; text-decoration: underline;
+    text-align: right; margin-top: 6px; transition: color 0.15s;
+  }
+  .consumo-reset:hover { color: var(--accent2); }
+
+  /* ===== PDF SPINNER ===== */
+  #pdf-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(10,12,16,0.85);
+    z-index: 9000; flex-direction: column; align-items: center; justify-content: center;
+    backdrop-filter: blur(6px);
+  }
+  #pdf-overlay.show { display: flex; }
+  .pdf-spinner {
+    width: 40px; height: 40px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin-bottom: 14px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pdf-msg { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- LOADER -->
+<div id="loader">
+  <div class="loader-logo">S.I.G.Ex  🌎 Retail📌 .v<span style="color:var(--orange)">3</span></div>
+  <div class="loader-bar"><div class="loader-fill"></div></div>
+  <div class="loader-msg">Cargando capas geoespaciales + IA...</div>
+</div>
+
+<!-- TOPBAR -->
+<div id="topbar">
+  <div class="topbar-left">
+    <span class="logo-badge">S.I.G.Ex  🌎 Retail📌 .v<span style="color:var(--orange)">3</span></span>
+    <span class="topbar-title">Visualizador Geo-Espacial y Analisis del entorno · Zona Bajío</span>
+    <a href="https://www.linkedin.com/in/alberto-olmedo-gro" target="_blank" rel="noopener"
+      style="display:flex;align-items:center;gap:9px;text-decoration:none;
+             background:rgba(10,102,194,0.15);border:1px solid rgba(10,102,194,0.35);
+             padding:6px 15px;border-radius:8px;transition:all 0.2s;"
+      onmouseover="this.style.background='rgba(10,102,194,0.28)';this.style.borderColor='rgba(10,102,194,0.6)'"
+      onmouseout="this.style.background='rgba(10,102,194,0.15)';this.style.borderColor='rgba(10,102,194,0.35)'">
+      <svg xmlns="http://www.w3.org/2000/svg" width="21" height="21" viewBox="0 0 24 24" fill="#0a66c2">
+        <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+      </svg>
+      <span style="font-family:var(--font-mono);font-size:16px;font-weight:600;color:#60a5fa;">alberto-olmedo-gro</span>
+    </a>
+  </div>
+  <div class="topbar-right">
+    <input type="text" id="prospecto-input" placeholder="Nombre del prospecto...">
+    <div class="filter-chips">
+      <div class="chip maxi"  data-fmt="Estándar" onclick="toggleChip(this)"><span class="chip-dot"></span>ESTÁNDAR</div>
+      <div class="chip tipoa" data-fmt="Ampliado"  onclick="toggleChip(this)"><span class="chip-dot"></span>AMPLIADO</div>
+      <div class="chip tipob" data-fmt="Plus"      onclick="toggleChip(this)"><span class="chip-dot"></span>PLUS</div>
+    </div>
+  </div>
+</div>
+
+<!-- PANEL IZQUIERDO -->
+<div id="panel">
+  <!-- Área de influencia -->
+  <div class="section">
+    <div class="section-title">Área de Influencia</div>
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-radio"    onclick="setMode('radio')">Radio</button>
+      <button class="tab-btn"        id="tab-isocrona" onclick="setMode('isocrona')">Isócrona</button>
+    </div>
+
+    <!-- Controles RADIO -->
+    <div id="ctrl-radio">
+      <div class="slider-row">
+        <span class="slider-label">Radio</span>
+        <input type="range" id="radius-slider" min="200" max="15000" step="100" value="800">
+        <span class="slider-val" id="radius-val">800 m</span>
+      </div>
+    </div>
+
+    <!-- Controles ISÓCRONA (ocultos al inicio) -->
+    <div id="ctrl-isocrona" style="display:none">
+      <!-- Modo de transporte -->
+      <div style="display:flex;gap:5px;margin-bottom:8px">
+        <button class="iso-mode-btn active" id="iso-walk"  data-profile="foot-walking"    onclick="selectIsoMode(this)" title="A pie">🚶</button>
+        <button class="iso-mode-btn"        id="iso-car"   data-profile="driving-car"      onclick="selectIsoMode(this)" title="Carro">🚗</button>
+        <button class="iso-mode-btn"        id="iso-emoto" data-profile="cycling-electric" onclick="selectIsoMode(this)" title="Moto eléctrica">⚡🛵</button>
+      </div>
+      <!-- Tiempo de viaje -->
+      <div class="slider-row">
+        <span class="slider-label">Tiempo</span>
+        <input type="range" id="iso-slider" min="3" max="30" step="1" value="10">
+        <span class="slider-val" id="iso-val">10 min</span>
+      </div>
+      <!-- API Key HEigit -->
+      <div style="margin-top:7px">
+        <input type="text" id="ors-apikey" placeholder="API Key OpenRouteService (heigit.org)..."
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);color:var(--text);
+          font-family:var(--font-mono);font-size:10px;padding:5px 8px;border-radius:6px;outline:none;">
+      </div>
+      <div id="iso-status" style="font-size:10px;color:var(--muted);margin-top:4px;min-height:14px;font-family:var(--font-mono)"></div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn primary" onclick="setCenter()">📍 Fijar centro</button>
+      <button class="btn" id="btn-calcular-iso" style="display:none" onclick="calcularIsocrona()">⏱ Calcular</button>
+    </div>
+  </div>
+
+  <!-- Stats scrollables -->
+  <div id="stats-area">
+    <div class="no-data" id="no-data-msg">
+      <div class="no-data-icon">📍</div>
+      Haz clic en el mapa para<br>analizar un área de influencia
+    </div>
+
+    <!-- Mercado -->
+    <div id="stats-content" style="display:none">
+
+      <!-- Mercado total -->
+      <div class="mercado-card">
+        <div style="font-family:var(--font-head);font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--text);margin-bottom:8px;display:flex;align-items:center;gap:6px;white-space:nowrap;">
+          <span style="display:inline-block;width:4px;height:13px;background:var(--accent);border-radius:2px;flex-shrink:0;"></span>
+          Valor del Mercado en kg
+        </div>
+        <div class="mercado-val" id="stat-mercado">— kg</div>
+        <div class="mercado-sub" id="stat-mercado-sem">— t/sem</div>
+        <div class="mercado-grid">
+          <div class="mg-cell"><div class="mg-label">RES</div><div class="mg-val res" id="stat-res" style="font-size:20px">—</div></div>
+          <div class="mg-cell"><div class="mg-label">CERDO</div><div class="mg-val cer" id="stat-cerdo" style="font-size:20px">—</div></div>
+          <div class="mg-cell"><div class="mg-label">POLLO</div><div class="mg-val pol" id="stat-pollo" style="font-size:20px">—</div></div>
+        </div>
+      </div>
+
+      <!-- Participación -->
+      <div class="part-section">
+        <div class="part-label">Participación de mercado objetivo</div>
+        <div class="slider-row">
+          <input type="range" id="part-slider" min="1" max="100" value="20" style="flex:1">
+          <span class="slider-val" id="part-val">20%</span>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px">
+          <div class="mg-cell"><div class="mg-label">RES</div><div class="mg-val res" id="conq-res">—</div></div>
+          <div class="mg-cell"><div class="mg-label">CERDO</div><div class="mg-val cer" id="conq-cerdo">—</div></div>
+          <div class="mg-cell"><div class="mg-label">POLLO</div><div class="mg-val pol" id="conq-pollo">—</div></div>
+        </div>
+      </div>
+
+      <!-- Conquista mínima -->
+      <div class="conquista-card">
+        <div>
+          <div class="conquista-label">Mínimo a Conquistar</div>
+          <div style="font-size:12px; color:var(--muted); margin-top:1px">Mercado potencial × participación</div>
+        </div>
+        <div class="conquista-val" id="stat-conquista">— kg</div>
+      </div>
+
+      <!-- 1. PERFIL DEMOGRÁFICO -->
+      <div class="section">
+        <div class="section-title">Perfil Demográfico</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px">
+          <div class="mg-cell"><div class="mg-label">Población Total</div><div class="mg-val" id="stat-pob" style="color:var(--text);font-size:28px">—</div></div>
+          <!-- Densidad como medidor visual -->
+          <div class="mg-cell" id="dens-cell">
+            <div class="mg-label">Densidad Poblacional</div>
+            <div id="dens-gauge-label" style="font-family:var(--font-head);font-weight:700;font-size:14px;margin:4px 0 5px;color:var(--text)">—</div>
+            <div style="display:flex;gap:4px;align-items:flex-end;height:24px;margin-bottom:3px">
+              <div id="dg-1" style="flex:1;border-radius:2px 2px 0 0;background:var(--border);transition:all 0.4s"></div>
+              <div id="dg-2" style="flex:1;border-radius:2px 2px 0 0;background:var(--border);transition:all 0.4s"></div>
+              <div id="dg-3" style="flex:1;border-radius:2px 2px 0 0;background:var(--border);transition:all 0.4s"></div>
+              <div id="dg-4" style="flex:1;border-radius:2px 2px 0 0;background:var(--border);transition:all 0.4s"></div>
+              <div id="dg-5" style="flex:1;border-radius:2px 2px 0 0;background:var(--border);transition:all 0.4s"></div>
+            </div>
+            <div id="dens-cat" style="font-size:12px;font-family:var(--font-mono);color:var(--muted)">—</div>
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <!-- Barra Femenino -->
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px">
+            <div style="width:72px; font-size:13px; font-weight:700; color:#e2e8f0; text-align:right; flex-shrink:0">
+              🚺 Fem <span id="pct-fem">—%</span>
+            </div>
+            <div style="flex:1; background:rgba(255,255,255,0.08); border-radius:99px; height:12px; overflow:hidden">
+              <div id="gender-bar-fem" style="height:100%; width:50%; background:#60a5fa; border-radius:99px; transition:width 0.5s ease"></div>
+            </div>
+            <div id="abs-fem" style="width:40px; font-size:11px; font-family:var(--font-mono); color:var(--muted); text-align:right; flex-shrink:0">—</div>
+          </div>
+          <!-- Barra Masculino -->
+          <div style="display:flex; align-items:center; gap:10px">
+            <div style="width:72px; font-size:13px; font-weight:700; color:#e2e8f0; text-align:right; flex-shrink:0">
+              🚹 Mas <span id="pct-mas">—%</span>
+            </div>
+            <div style="flex:1; background:rgba(255,255,255,0.08); border-radius:99px; height:12px; overflow:hidden">
+              <div id="gender-bar-mas" style="height:100%; width:50%; background:#fb923c; border-radius:99px; transition:width 0.5s ease"></div>
+            </div>
+            <div id="abs-mas" style="width:40px; font-size:11px; font-family:var(--font-mono); color:var(--muted); text-align:right; flex-shrink:0">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. PIRÁMIDE POBLACIONAL -->
+      <div class="section">
+        <div class="section-title">Pirámide Poblacional</div>
+        <div style="padding:4px 0 8px;">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:8px;padding:0 2px;">
+            <span style="color:#60a5fa;font-weight:600;">← Femenino</span>
+            <span>Grupo</span>
+            <span style="color:#fb923c;font-weight:600;">Masculino →</span>
+          </div>
+          <div id="piramide-container"></div>
+          <div id="piramide-perfil" style="margin-top:8px;padding:6px 10px;border-radius:6px;font-size:10px;display:none;"></div>
+        </div>
+      </div>
+
+      <!-- 3. PARÁMETROS DE CONSUMO -->
+      <div class="section" id="consumo-section">
+        <div class="section-title">Parámetros de Consumo</div>
+        <div class="consumo-grid">
+          <div class="consumo-cell">
+            <label>🥩 Res</label>
+            <input class="consumo-input" id="c-res" type="number" min="0.01" max="5" step="0.01" value="0.358">
+            <div class="consumo-unit">kg/pers/sem</div>
+          </div>
+          <div class="consumo-cell">
+            <label>🐷 Cerdo</label>
+            <input class="consumo-input" id="c-cerdo" type="number" min="0.01" max="5" step="0.01" value="0.520">
+            <div class="consumo-unit">kg/pers/sem</div>
+          </div>
+          <div class="consumo-cell">
+            <label>🍗 Pollo</label>
+            <input class="consumo-input" id="c-pollo" type="number" min="0.01" max="5" step="0.01" value="0.798">
+            <div class="consumo-unit">kg/pers/sem</div>
+          </div>
+        </div>
+        <div class="consumo-reset" onclick="resetConsumo()">↺ Restaurar valores INEGI</div>
+      </div>
+
+
+
+      <!-- 5. ÍNDICE DE SATURACIÓN -->
+      <div class="section">
+        <div class="section-title">Índice de Saturación</div>
+        <div style="padding:8px 0 4px;">
+          <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:center;">
+            <!-- Donut SVG -->
+            <div style="position:relative;width:100%;aspect-ratio:1;max-width:150px;margin:0 auto;">
+              <svg id="sat-donut-svg" viewBox="0 0 160 160" width="100%" height="100%">
+                <!-- Track -->
+                <circle cx="80" cy="80" r="58" fill="none" stroke="rgba(35,40,53,0.9)" stroke-width="20"/>
+                <!-- Arco dinámico de cobertura -->
+                <circle id="sat-donut-arc" cx="80" cy="80" r="58" fill="none"
+                  stroke="#22c55e" stroke-width="20"
+                  stroke-dasharray="0 364.4"
+                  stroke-dashoffset="91"
+                  stroke-linecap="round"
+                  style="transition:stroke-dasharray 1s cubic-bezier(.4,0,.2,1),stroke 0.6s ease;"/>
+                <!-- Texto central -->
+                <text id="sat-donut-pct" x="80" y="74" font-family="'Syne',sans-serif" font-weight="800" font-size="28" fill="#e2e8f0" text-anchor="middle">—</text>
+                <text x="80" y="91" font-family="'DM Sans',sans-serif" font-size="11" fill="#64748b" text-anchor="middle">cubierto</text>
+              </svg>
+            </div>
+            <!-- Métricas laterales -->
+            <div style="display:flex;flex-direction:column;gap:7px;">
+              <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
+                <div style="font-size:10px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px;">Disponible</div>
+                <div id="sat-disponible" style="font-family:var(--font-head);font-weight:700;font-size:20px;color:#22c55e;line-height:1;">—</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:1px;">sin competencia</div>
+              </div>
+              <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
+                <div style="font-size:10px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px;">Tiendas en zona</div>
+                <div id="sat-tiendas" style="font-family:var(--font-head);font-weight:700;font-size:20px;color:var(--text);line-height:1;">—</div>
+                <div id="sat-ratio" style="font-size:10px;color:var(--muted);margin-top:1px;">— hab/tienda</div>
+              </div>
+              <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
+                <div style="font-size:10px;color:var(--muted);margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px;">Para saturar</div>
+                <div id="sat-para-saturar" style="font-family:var(--font-head);font-weight:700;font-size:20px;color:var(--text);line-height:1;">—</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:1px;">&lt; 6,000 hab/tienda</div>
+              </div>
+            </div>
+          </div>
+          <!-- Badge de estado -->
+          <div id="sat-badge" style="margin-top:10px;text-align:center;padding:5px 12px;border-radius:20px;font-family:var(--font-mono);font-size:11px;font-weight:600;background:rgba(100,116,139,0.15);color:var(--muted);">—</div>
+          <!-- Desglose por formato -->
+          <div id="sat-list" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+    </div><!-- /stats-content -->
+  </div><!-- /stats-area -->
+
+  <!-- Export -->
+  <div class="export-row">
+    <button class="btn" onclick="exportarCSV()">↓ CSV</button>
+    <button class="btn" onclick="exportarKML()" style="background:rgba(251,191,36,0.15);border-color:rgba(251,191,36,0.5);color:#fbbf24;font-weight:700;">↓ KML Área</button>
+    <button class="btn" onclick="exportarKMLManzanas()" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.5);color:#a855f7;font-weight:700;">↓ KML Área/Mzs</button>
+  </div>
+</div>
+
+<!-- MAP -->
+<div id="map"></div>
+
+<!-- LEYENDA -->
+<div id="legend">
+  <div class="leg-title">Sucursales en Zona</div>
+  <div class="leg-row">
+    <span class="leg-dot" style="background:#3b82f6;box-shadow:0 0 6px rgba(59,130,246,0.6)"></span>
+    <span style="flex:1">Estándar</span>
+    <span id="leg-cnt-std" style="font-family:var(--font-mono);font-size:11px;color:#3b82f6;font-weight:700;min-width:28px;text-align:right;display:none"></span>
+  </div>
+  <div class="leg-row">
+    <span class="leg-dot" style="background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,0.6)"></span>
+    <span style="flex:1">Ampliado</span>
+    <span id="leg-cnt-amp" style="font-family:var(--font-mono);font-size:11px;color:#f59e0b;font-weight:700;min-width:28px;text-align:right;display:none"></span>
+  </div>
+  <div class="leg-row">
+    <span class="leg-dot" style="background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,0.6)"></span>
+    <span style="flex:1">Plus</span>
+    <span id="leg-cnt-pls" style="font-family:var(--font-mono);font-size:11px;color:#ef4444;font-weight:700;min-width:28px;text-align:right;display:none"></span>
+  </div>
+  <div style="border-top:1px solid var(--border); margin:10px 0"></div>
+  <div class="leg-row">
+    <span class="leg-swatch" style="background:rgba(34,197,94,0.35);border:1px solid rgba(34,197,94,0.5)"></span>
+    <span style="flex:1">🟢 Zona Baja <span style="font-size:10px;color:var(--muted);">≤ 5,000</span></span>
+    <span id="leg-pct-low" style="font-family:var(--font-mono);font-size:11px;color:#22c55e;font-weight:700;min-width:36px;text-align:right;display:none"></span>
+  </div>
+  <div class="leg-row">
+    <span class="leg-swatch" style="background:rgba(245,158,11,0.40);border:1px solid rgba(245,158,11,0.5)"></span>
+    <span style="flex:1">🟡 Zona Media <span style="font-size:10px;color:var(--muted);">5,001–10,000</span></span>
+    <span id="leg-pct-med" style="font-family:var(--font-mono);font-size:11px;color:var(--amber);font-weight:700;min-width:36px;text-align:right;display:none"></span>
+  </div>
+  <div class="leg-row">
+    <span class="leg-swatch" style="background:rgba(239,68,68,0.40);border:1px solid rgba(239,68,68,0.5)"></span>
+    <span style="flex:1">🔴 Zona Alta <span style="font-size:10px;color:var(--muted);">> 10,000</span></span>
+    <span id="leg-pct-high" style="font-family:var(--font-mono);font-size:11px;color:var(--red);font-weight:700;min-width:36px;text-align:right;display:none"></span>
+  </div>
+
+  <!-- TomTom Traffic Legend (hidden by default) -->
+  <div id="tt-legend" style="display:none">
+    <div style="border-top:1px solid var(--border); margin:10px 0"></div>
+    <div class="leg-title" style="color:#00d4ff;"><span style="font-size:28px;line-height:1;vertical-align:middle;">🚦</span> Tráfico TomTom</div>
+    <div class="leg-row"><span style="display:inline-block;width:26px;height:4px;border-radius:2px;background:#22c55e;flex-shrink:0;align-self:center;"></span> Flujo libre</div>
+    <div class="leg-row"><span style="display:inline-block;width:26px;height:4px;border-radius:2px;background:#eab308;flex-shrink:0;align-self:center;"></span> Moderado</div>
+    <div class="leg-row"><span style="display:inline-block;width:26px;height:4px;border-radius:2px;background:#f97316;flex-shrink:0;align-self:center;"></span> Lento</div>
+    <div class="leg-row"><span style="display:inline-block;width:26px;height:4px;border-radius:2px;background:#ef4444;flex-shrink:0;align-self:center;"></span> Congestionado</div>
+  </div>
+</div>
+
+<!-- SELECTOR MAPA BASE -->
+<div id="basemap-selector">
+  <div id="basemap-selector-inner">
+  <button class="bmap-btn active" id="bmap-dark" onclick="setBasemap('dark')">
+    <span class="bmap-icon">🌑</span>Dark
+  </button>
+  <button class="bmap-btn" id="bmap-road" onclick="setBasemap('road')">
+    <span class="bmap-icon">🗺️</span>Google
+  </button>
+  <button class="bmap-btn" id="bmap-sat" onclick="setBasemap('satellite')">
+    <span class="bmap-icon">🛰️</span>Satélite
+  </button>
+  <div style="width:1px;background:var(--border);margin:4px 2px;border-radius:1px;"></div>
+  <button class="bmap-btn" id="bmap-tomtom" onclick="toggleTomTomPanel()" style="border-color:rgba(0,212,255,0.3);color:rgba(0,212,255,0.7);">
+    <span class="bmap-icon">📡</span>TomTom
+  </button>
+  </div>
+</div>
+
+<!-- DRAW TOOLBAR FLOTANTE -->
+<div id="draw-toolbar">
+  <div class="draw-toolbar-header" onclick="toggleDrawToolbar()">
+    <span class="draw-toolbar-label">✏️ Dibujo</span>
+    <span class="draw-collapse-icon open" id="draw-collapse-icon">▲</span>
+  </div>
+  <div class="draw-tools-body" id="draw-tools-body">
+    <button class="dtool-btn" id="dtool-draw" onclick="startDrawPolygon()">
+      <span class="dtool-icon">🖊️</span>Dibujar
+    </button>
+    <button class="dtool-btn" id="dtool-edit" onclick="startEditPolygon()" disabled>
+      <span class="dtool-icon">✏️</span>Editar
+    </button>
+    <button class="dtool-btn" id="dtool-finish" onclick="finishDrawPolygon()" style="display:none">
+      <span class="dtool-icon">✅</span>Cerrar
+    </button>
+    <div class="dtool-divider"></div>
+    <button class="dtool-btn export-act" id="dtool-kml" onclick="exportPolyKML()" disabled>
+      <span class="dtool-icon">📄</span>KML
+    </button>
+    <button class="dtool-btn export-act2" id="dtool-geojson" onclick="exportPolyGeoJSON()" disabled>
+      <span class="dtool-icon">🗂️</span>GeoJSON
+    </button>
+    <div class="dtool-divider"></div>
+    <button class="dtool-btn danger" id="dtool-clear" onclick="clearPolygon()" disabled>
+      <span class="dtool-icon">🗑️</span>Limpiar
+    </button>
+  </div>
+</div>
+
+<!-- PANEL STATS POLÍGONO -->
+<div id="poly-stats-panel">
+  <div class="psp-title">Polígono</div>
+  <div class="psp-row">
+    <span class="psp-label">Población</span>
+    <span class="psp-val psp-big" id="psp-pob">—</span>
+  </div>
+  <div class="psp-row">
+    <span class="psp-label">Área km²</span>
+    <span class="psp-val" id="psp-area">—</span>
+  </div>
+  <div class="psp-row">
+    <span class="psp-label">Manzanas</span>
+    <span class="psp-val" id="psp-mzs">—</span>
+  </div>
+  <div class="psp-divider"></div>
+  <div class="psp-row">
+    <span class="psp-label">Mercado / sem</span>
+    <span class="psp-val" id="psp-mercado">—</span>
+  </div>
+  <div class="psp-row" style="margin-top:3px">
+    <span class="psp-label" style="font-size:10px;color:#6b7280">RES</span>
+    <span class="psp-val" style="font-size:11px;color:#a78bfa" id="psp-res">—</span>
+    <span class="psp-label" style="font-size:10px;color:#6b7280;margin-left:8px">CERDO</span>
+    <span class="psp-val" style="font-size:11px;color:#f59e0b" id="psp-cerdo">—</span>
+    <span class="psp-label" style="font-size:10px;color:#6b7280;margin-left:8px">POLLO</span>
+    <span class="psp-val" style="font-size:11px;color:#22c55e" id="psp-pollo">—</span>
+  </div>
+  <div class="psp-divider"></div>
+  <div class="psp-row">
+    <span class="psp-label">Densidad</span>
+    <span class="psp-val" id="psp-dens">—</span>
+  </div>
+  <div class="psp-row">
+    <span class="psp-label">Vértices</span>
+    <span class="psp-val" id="psp-verts">—</span>
+  </div>
+</div>
+
+<!-- HINT DIBUJO -->
+<div id="draw-hint">Clic para agregar punto · Doble clic para cerrar</div>
+
+<!-- TOMTOM TRAFFIC PANEL -->
+<div id="tomtom-panel" style="
+  display:none;
+  position:fixed;
+  bottom:90px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:700;
+  background:rgba(10,12,16,0.97);
+  border:1px solid #1a3a5c;
+  border-radius:12px;
+  padding:16px 20px;
+  backdrop-filter:blur(16px);
+  min-width:340px;
+  max-width:420px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.6);
+">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <div style="font-family:var(--font-head);font-weight:700;font-size:13px;color:#00d4ff;letter-spacing:1px;text-transform:uppercase;">
+      📡 TomTom Tráfico en Tiempo Real
+    </div>
+    <button onclick="toggleTomTomPanel()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:2px 4px;">✕</button>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:10px;">
+    <input type="text" id="tt-apikey" placeholder="Pega tu TomTom API Key..." style="
+      flex:1;background:var(--surface2);border:1px solid var(--border);
+      color:#00d4ff;font-family:var(--font-mono);font-size:11px;
+      padding:7px 10px;border-radius:6px;outline:none;transition:border-color .2s;
+    " onfocus="this.style.borderColor='#00d4ff'" onblur="this.style.borderColor='var(--border)'">
+    <button onclick="applyTomTom()" style="
+      background:transparent;border:1px solid #00d4ff;color:#00d4ff;
+      font-family:var(--font-mono);font-size:10px;letter-spacing:1px;
+      padding:7px 12px;border-radius:6px;cursor:pointer;white-space:nowrap;
+      transition:all .2s;text-transform:uppercase;
+    " onmouseover="this.style.background='#00d4ff';this.style.color='#080d14'"
+       onmouseout="this.style.background='transparent';this.style.color='#00d4ff'">
+      Aplicar
+    </button>
+  </div>
+
+  <!-- Flujo toggle -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);">
+      <div style="width:10px;height:10px;border-radius:50%;background:#00d4ff;flex-shrink:0;"></div>
+      Flujo de Tráfico
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <input type="range" min="0" max="100" value="80" id="tt-opacity-flow"
+        style="width:70px;accent-color:#00d4ff;height:3px;cursor:pointer;"
+        oninput="setTomTomOpacity('flow',this.value);document.getElementById('tt-val-flow').textContent=this.value+'%'">
+      <span id="tt-val-flow" style="font-family:var(--font-mono);font-size:10px;color:#00d4ff;width:30px;">80%</span>
+      <input type="checkbox" id="tt-toggle-flow" checked onchange="toggleTomTomLayer('flow',this)"
+        style="width:15px;height:15px;accent-color:#00d4ff;cursor:pointer;">
+    </div>
+  </div>
+
+  <!-- Incidentes toggle -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);">
+      <div style="width:10px;height:10px;border-radius:50%;background:#f97316;flex-shrink:0;"></div>
+      Incidentes Viales
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <input type="range" min="0" max="100" value="90" id="tt-opacity-inc"
+        style="width:70px;accent-color:#f97316;height:3px;cursor:pointer;"
+        oninput="setTomTomOpacity('inc',this.value);document.getElementById('tt-val-inc').textContent=this.value+'%'">
+      <span id="tt-val-inc" style="font-family:var(--font-mono);font-size:10px;color:#f97316;width:30px;">90%</span>
+      <input type="checkbox" id="tt-toggle-inc" checked onchange="toggleTomTomLayer('inc',this)"
+        style="width:15px;height:15px;accent-color:#f97316;cursor:pointer;">
+    </div>
+  </div>
+
+  <div id="tt-status" style="font-family:var(--font-mono);font-size:11px;color:var(--muted);text-align:center;min-height:16px;margin-bottom:8px;font-weight:600;transition:color 0.3s;"></div>
+  <div style="border-top:1px solid var(--border);padding-top:8px;font-size:9px;color:var(--muted);line-height:1.6;">
+    Obtén tu key gratis en <span style="color:#00d4ff;cursor:pointer;" onclick="window.open('https://developer.tomtom.com','_blank')">developer.tomtom.com</span><br>
+    <span style="color:#475569;">2,500 req/día · Traffic API debe estar habilitado en tu app</span>
+  </div>
+</div>
+
+
+<!-- PDF OVERLAY -->
+<div id="pdf-overlay">
+  <div class="pdf-spinner"></div>
+  <div class="pdf-msg" id="pdf-msg">Generando PDF...</div>
+</div>
+
+<script>
+// ============================================================
+//  DATOS Y CONSTANTES
+// ============================================================
+const CONSUMO_DEFAULT = { RES: 0.358, CERDO: 0.520, POLLO: 0.798 };
+let CONSUMO = { ...CONSUMO_DEFAULT };
+
+function getConsumo() {
+  return {
+    RES:   parseFloat(document.getElementById('c-res').value)   || CONSUMO_DEFAULT.RES,
+    CERDO: parseFloat(document.getElementById('c-cerdo').value) || CONSUMO_DEFAULT.CERDO,
+    POLLO: parseFloat(document.getElementById('c-pollo').value) || CONSUMO_DEFAULT.POLLO,
+  };
+}
+
+function resetConsumo() {
+  document.getElementById('c-res').value   = CONSUMO_DEFAULT.RES;
+  document.getElementById('c-cerdo').value = CONSUMO_DEFAULT.CERDO;
+  document.getElementById('c-pollo').value = CONSUMO_DEFAULT.POLLO;
+  if (currentStats) updateAnalysis();
+}
+
+// Formatos visibles
+let visibleFmts = new Set(['Estándar', 'Ampliado', 'Plus']);
+
+// Estado
+let map, circleLayer, manzanaLayer, expendioMarkers = [], centerPin = null;
+let selectedCenter = null;
+let currentRadius = 800;
+let currentPart = 20;
+let currentStats = null;
+
+// Colores expendios
+const FMT_COLOR = {
+  'Estándar': '#3b82f6',
+  'Ampliado': '#f59e0b',
+  'Plus':     '#ef4444'
+};
+
+// ============================================================
+//  DATOS EMBEBIDOS (expendios)
+// ============================================================
+const EXPENDIOS_DATA = {"type":"FeatureCollection","features":[]};
+
+// ============================================================
+//  INIT MAP
+// ============================================================
+// ============================================================
+//  BASEMAP MANAGEMENT
+// ============================================================
+let currentBasemap = 'dark';
+let baseLayer = null;        // Leaflet TileLayer o GoogleMutant
+let trafficLayer = null;     // capa de tráfico de GoogleMutant
+
+const BASEMAPS = {
+  dark: {
+    type: 'tile',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    options: { attribution: '©OpenStreetMap ©CartoDB', maxZoom: 19, subdomains: 'abcd' }
+  },
+  road: {
+    type: 'tile',
+    url: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+    options: { attribution: '©Google Maps', maxZoom: 21, subdomains: '0123' }
+  },
+  satellite: {
+    type: 'tile',
+    url: 'https://mt{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    options: { attribution: '©Google Satellite', maxZoom: 21, subdomains: '0123' }
+  },
+  traffic: {
+    type: 'multi',
+    layers: [
+      { url: 'https://mt{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+        options: { attribution: '©Google', maxZoom: 21, subdomains: '0123' } },
+      { url: 'https://mt{s}.google.com/vt/lyrs=h@178000000&x={x}&y={y}&z={z}&apistyle=s.t%3A2|s.e%3Al|p.v%3Aoff',
+        options: { attribution: '', maxZoom: 21, subdomains: '0123', opacity: 0.9 } },
+      { url: 'https://mt{s}.google.com/vt/lyrs=traffic&x={x}&y={y}&z={z}',
+        options: { attribution: '©Google Tráfico', maxZoom: 21, subdomains: '0123', opacity: 0.85 } }
+    ]
+  }
+};
+
+function initMap() {
+  map = L.map('map', {
+    center: [21.1236, -101.6832],
+    zoom: 13,
+    zoomControl: false
+  });
+
+  // Pane dedicado para expendios — encima de MZA (zIndex 450) y TomTom (400-401)
+  map.createPane('expendioPane');
+  map.getPane('expendioPane').style.zIndex = 500;
+  // NO desactivar pointerEvents: los marcadores div necesitan recibir clicks
+
+  // Satélite por defecto
+  currentBasemap = 'satellite';
+  baseLayer = L.tileLayer(BASEMAPS.satellite.url, BASEMAPS.satellite.options).addTo(map);
+  // Marcar botón satélite como activo
+  setTimeout(function() {
+    document.querySelectorAll('.bmap-btn').forEach(b => b.classList.remove('active','google-road','google-sat','google-traf'));
+    const btnSat = document.getElementById('bmap-sat');
+    if (btnSat) { btnSat.classList.add('active'); btnSat.classList.add('google-sat'); }
+  }, 0);
+
+  L.control.zoom({ position: 'topright' }).addTo(map);
+
+  // Click en mapa
+  map.on('click', function(e) {
+    if (drawActive || editActive) return;   // dibujo activo: ignorar click del mapa
+    selectedCenter = e.latlng;
+    if (currentMode === 'radio') updateAnalysis();
+    else {
+      // En modo isócrona: solo colocar el pin, no calcular aún
+      if (centerPin) map.removeLayer(centerPin);
+      const pinIcon = L.divIcon({
+        className: '',
+        html: `<div style="width:18px;height:18px;background:#a78bfa;border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 8px rgba(0,0,0,0.5);"></div>`,
+        iconSize: [18,18], iconAnchor: [9,18]
+      });
+      centerPin = L.marker([e.latlng.lat, e.latlng.lng], { icon: pinIcon, zIndexOffset: 1000 })
+        .bindTooltip('📍 Centro isócrona — presiona Calcular', {
+          permanent: true, className: 'mza-tooltip', offset: [14,-6], direction:'right'
+        }).addTo(map);
+      centerPin.openTooltip();
+      document.getElementById('iso-status').textContent = '📍 Centro fijado. Presiona Calcular.';
+      document.getElementById('iso-status').style.color = 'var(--accent2)';
+    }
+  });
+}
+
+function setBasemap(name) {
+  if (name === currentBasemap) return;
+  const cfg = BASEMAPS[name];
+  if (!cfg) return;
+
+  // Actualizar botones UI
+  document.querySelectorAll('.bmap-btn').forEach(b =>
+    b.classList.remove('active','google-road','google-sat','google-traf'));
+  const btnMap = { dark:'bmap-dark', road:'bmap-road', satellite:'bmap-sat', traffic:'bmap-traf' };
+  const clsMap = { road:'google-road', satellite:'google-sat', traffic:'google-traf' };
+  const btn = document.getElementById(btnMap[name]);
+  if (btn) { btn.classList.add('active'); if (clsMap[name]) btn.classList.add(clsMap[name]); }
+
+  // Remover capas anteriores
+  if (trafficLayer) {
+    (Array.isArray(trafficLayer) ? trafficLayer : [trafficLayer])
+      .forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
+    trafficLayer = null;
+  }
+  if (baseLayer) { if (map.hasLayer(baseLayer)) map.removeLayer(baseLayer); baseLayer = null; }
+
+  if (cfg.type === 'tile') {
+    baseLayer = L.tileLayer(cfg.url, cfg.options).addTo(map);
+  } else if (cfg.type === 'multi') {
+    // Capa base + capas de overlay (tráfico)
+    baseLayer = L.tileLayer(cfg.layers[0].url, cfg.layers[0].options).addTo(map);
+    trafficLayer = cfg.layers.slice(1).map(l => L.tileLayer(l.url, l.options).addTo(map));
+  }
+
+  if (manzanaLayer) manzanaLayer.bringToBack();
+  // Expendios siempre encima del basemap y TomTom
+  expendioMarkers.forEach(m => { try { m.bringToFront(); } catch(e){} });
+  currentBasemap = name;
+}
+
+// ============================================================
+//  CARGAR EXPENDIOS
+// ============================================================
+function loadExpendios(geojson) {
+  // Limpiar marcadores viejos
+  expendioMarkers.forEach(m => map.removeLayer(m));
+  expendioMarkers = [];
+
+  geojson.features.forEach(f => {
+    if (!f.geometry || f.geometry.type !== 'Point') return;
+    const [lng, lat] = f.geometry.coordinates;
+    const p = f.properties;
+    const fmt = (p['Formato de Local'] || '').trim();
+    const color = FMT_COLOR[fmt] || '#64748b';
+
+    // Tamaños reducidos ~10% respecto al original (px diámetro)
+    const size = fmt === 'Plus' ? 22 : fmt === 'Ampliado' ? 20 : 18;
+    const half = size / 2;
+
+    // Pulso: Plus más rápido y doble anillo, resto uno solo
+    const dur = fmt === 'Plus' ? '1.6s' : fmt === 'Ampliado' ? '2.0s' : '2.4s';
+    const rings = fmt === 'Plus'
+      ? `<span class="pulse-ring" style="--pc:${color};--pd:${dur};animation-delay:0s"></span>
+         <span class="pulse-ring" style="--pc:${color};--pd:${dur};animation-delay:0.75s"></span>`
+      : `<span class="pulse-ring" style="--pc:${color};--pd:${dur};animation-delay:0s"></span>`;
+
+    const icon = L.divIcon({
+      className: '',
+      iconSize:   [size, size],
+      iconAnchor: [half, half],
+      popupAnchor:[0, -(half + 4)],
+      html: `<div class="tienda-marker" style="width:${size}px;height:${size}px;">
+               ${rings}
+               <span class="tienda-dot" style="width:${size}px;height:${size}px;background:${color};"></span>
+             </div>`
+    });
+
+    const marker = L.marker([lat, lng], { icon, pane: 'expendioPane' });
+    marker.fmt = fmt;
+
+    marker.bindPopup(`
+      <div class="pop-title">${p.name || 'Sin nombre'}</div>
+      <div class="pop-row"><span>Formato</span><span>${fmt}</span></div>
+      <div class="pop-row"><span>Sinergia</span><span>${p['Tipo de Sinergia'] || '—'}</span></div>
+      <div class="pop-row"><span>Municipio</span><span>${p['Municipio:'] || '—'}</span></div>
+      <div class="pop-row"><span>Apertura</span><span>${p['Fecha Apertura'] || '—'}</span></div>
+    `);
+
+    marker.addTo(map);
+    expendioMarkers.push(marker);
+  });
+
+  updateMarkersVisibility();
+}
+
+// ============================================================
+//  CARGAR MANZANAS (se pasa como parámetro)
+// ============================================================
+let MANZANAS_DATA = null;
+
+function loadManzanas(geojson) {
+  MANZANAS_DATA = geojson;
+
+  if (manzanaLayer) map.removeLayer(manzanaLayer);
+
+  // Todas las manzanas comienzan invisibles — solo se colorean las que
+  // intersectan con el radio/isócrona activo (ver highlightManzanas)
+  manzanaLayer = L.geoJSON(geojson, {
+    style: () => ({
+      fillColor: 'transparent',
+      fillOpacity: 0,
+      color: 'rgba(255,255,255,0)',
+      weight: 0
+    }),
+    onEachFeature: (feature, layer) => {
+      layer._mzaFeature = feature; // referencia para highlight rápido
+    }
+  }).addTo(map);
+
+  manzanaLayer.bringToBack();
+}
+
+// Resalta solo las manzanas dentro del área activa (radio o isócrona)
+// usando la misma lógica de intersección que el análisis de stats.
+function highlightManzanas(centerPt, bufferKm, isoFeature) {
+  if (!manzanaLayer) return;
+
+  manzanaLayer.eachLayer(layer => {
+    const f = layer._mzaFeature || layer.feature;
+    if (!f) return;
+
+    let dentro = false;
+    try {
+      const centroid = turf.centroid(f);
+      if (isoFeature) {
+        // Modo isócrona: punto en polígono
+        dentro = turf.booleanPointInPolygon(centroid, isoFeature);
+      } else {
+        // Modo radio: distancia al centro
+        const dist = turf.distance(centerPt, centroid, { units: 'kilometers' });
+        dentro = dist <= bufferKm;
+      }
+    } catch(e) {}
+
+    const pop = parseInt(f.properties.POBTOT) || 0;
+    layer.setStyle(dentro
+      ? { fillColor: getDensColor(pop), fillOpacity: 1,
+          color: 'rgba(255,255,255,0.08)', weight: 0.6 }
+      : { fillColor: 'transparent', fillOpacity: 0,
+          color: 'rgba(255,255,255,0)', weight: 0 }
+    );
+  });
+
+  manzanaLayer.bringToBack();
+}
+
+function getDensColor(pop) {
+  if (pop === 0)   return 'transparent';
+  if (pop < 80)    return 'rgba(34,197,94,0.55)';   // 🟢 Zona Baja
+  if (pop < 200)   return 'rgba(245,158,11,0.60)';  // 🟡 Zona Media
+  return              'rgba(239,68,68,0.65)';        // 🔴 Zona Alta
+}
+
+// ============================================================
+//  ANÁLISIS DE ÁREA
+// ============================================================
+function updateAnalysis() {
+  if (!selectedCenter || !MANZANAS_DATA) return;
+
+  const lat = selectedCenter.lat;
+  const lng = selectedCenter.lng;
+  const radiusM = currentRadius;
+
+  // Dibujar círculo
+  if (circleLayer) map.removeLayer(circleLayer);
+  circleLayer = L.circle([lat, lng], {
+    radius: radiusM,
+    color: '#f59e0b',
+    weight: 7,
+    fillColor: '#f59e0b',
+    fillOpacity: 0.07,
+    dashArray: '10 6'
+  }).addTo(map);
+
+  // Calcular manzanas dentro del radio usando turf
+  const centerPt = turf.point([lng, lat]);
+  const bufferKm = radiusM / 1000;
+
+  let pobTot = 0, pobFem = 0, pobMas = 0;
+  let p0_14 = 0, p15_29 = 0, p30_59 = 0, p60m = 0;
+  let manzanasDentro = 0;
+  let mzaBaja = 0, mzaMedia = 0, mzaAlta = 0;
+
+  MANZANAS_DATA.features.forEach(f => {
+    try {
+      // Calcular centroide de manzana
+      const centroid = turf.centroid(f);
+      const dist = turf.distance(centerPt, centroid, { units: 'kilometers' });
+      if (dist <= bufferKm) {
+        manzanasDentro++;
+        const p = f.properties;
+        const pop = parseInt(p.POBTOT) || 0;
+        pobTot  += parseInt(p.POBTOT)  || 0;
+        pobFem  += parseInt(p.POBFEM)  || 0;
+        pobMas  += parseInt(p.POBMAS)  || 0;
+        p0_14   += parseInt(p.POB0_14) || 0;
+        p15_29  += parseInt(p.P15A29A) || 0;
+        p30_59  += parseInt(p.P30A59A) || 0;
+        p60m    += parseInt(p.P_60YMAS)|| 0;
+        // Clasificar densidad por manzana
+        if (pop < 80)       mzaBaja++;
+        else if (pop < 200) mzaMedia++;
+        else                mzaAlta++;
+      }
+    } catch(e) {}
+  });
+
+  // Calcular mercado
+  const C = getConsumo();
+  const resSem   = pobTot * C.RES;
+  const cerdoSem = pobTot * C.CERDO;
+  const polloSem = pobTot * C.POLLO;
+  const totalSem = resSem + cerdoSem + polloSem;
+
+  // Expendios dentro
+  const expendiosDentro = [];
+  expendioMarkers.forEach(m => {
+    const mLat = m.getLatLng().lat;
+    const mLng = m.getLatLng().lng;
+    const mPt  = turf.point([mLng, mLat]);
+    const dist  = turf.distance(centerPt, mPt, { units: 'kilometers' });
+    if (dist <= bufferKm) expendiosDentro.push(m);
+  });
+
+  // Densidad (hab/km2)
+  const areaKm2 = Math.PI * bufferKm * bufferKm;
+  const densidad = pobTot / areaKm2;
+
+  // Guardar estado
+  currentStats = { pobTot, pobFem, pobMas, p0_14, p15_29, p30_59, p60m,
+                   resSem, cerdoSem, polloSem, totalSem, densidad,
+                   expendiosDentro, areaKm2,
+                   mzaBaja, mzaMedia, mzaAlta, manzanasDentro };
+
+  updateLegend(expendiosDentro, mzaBaja, mzaMedia, mzaAlta, manzanasDentro);
+
+  // Pin central con tooltip permanente (siempre visible)
+  if (centerPin) map.removeLayer(centerPin);
+  const pinIcon = L.divIcon({
+    className: '',
+    html: `<div style="
+      width:21px;height:21px;
+      background:var(--accent);
+      border:3px solid #fff;
+      border-radius:50% 50% 50% 0;
+      transform:rotate(-45deg);
+      box-shadow:0 2px 8px rgba(0,0,0,0.5);
+    "></div>`,
+    iconSize: [21, 21],
+    iconAnchor: [10, 21]
+  });
+
+  // Clasificación de densidad para el tooltip
+  const densTooltip = densidad <= 5000  ? { label: 'Zona Baja',  color: '#22c55e', emoji: '🟢' }
+    : densidad <= 10000 ? { label: 'Zona Media', color: '#f59e0b', emoji: '🟡' }
+    :                     { label: 'Zona Alta',  color: '#ef4444', emoji: '🔴' };
+
+  centerPin = L.marker([lat, lng], { icon: pinIcon, zIndexOffset: 1000 })
+    .bindTooltip(`
+      <div style="font-family:var(--font-mono);font-size:12px;line-height:1.8">
+        <div style="font-weight:700;color:#60a5fa;margin-bottom:4px">📍 Centro de análisis</div>
+        <div>👥 Pob Tot: <strong>${pobTot.toLocaleString('es-MX')}</strong></div>
+        <div>🚺 Fem: <strong>${pobTot > 0 ? (pobFem/pobTot*100).toFixed(1) : 0}%</strong> (${pobFem.toLocaleString('es-MX')})</div>
+        <div>🚹 Mas: <strong>${pobTot > 0 ? (pobMas/pobTot*100).toFixed(1) : 0}%</strong> (${pobMas.toLocaleString('es-MX')})</div>
+        <div>🥩 Mercado: <strong>${Math.round(totalSem).toLocaleString('es-MX')} kg/sem</strong></div>
+        <div style="margin-top:3px">${densTooltip.emoji} Densidad: <strong style="color:${densTooltip.color}">${densTooltip.label}</strong></div>
+        <div style="margin-top:4px;font-size:10px;color:#64748b">Radio: ${radiusM >= 1000 ? (radiusM/1000).toFixed(1)+' km' : radiusM+' m'}</div>
+      </div>
+    `, {
+      permanent: true,
+      sticky: false,
+      className: 'mza-tooltip',
+      offset: [14, -6],
+      direction: 'right'
+    })
+    .addTo(map);
+  centerPin.openTooltip();
+
+  // Colorear solo manzanas dentro del radio
+  highlightManzanas(centerPt, bufferKm, null);
+
+  renderStats();
+}
+
+// ============================================================
+//  RENDER STATS
+// ============================================================
+function renderStats() {
+  if (!currentStats) return;
+  const s = currentStats;
+  const part = currentPart / 100;
+
+  // Mostrar panel
+  document.getElementById('no-data-msg').style.display = 'none';
+  document.getElementById('stats-content').style.display = 'block';
+
+  // Mercado
+  const fmt = n => n >= 1000 ? (n/1000).toFixed(2)+' t' : Math.round(n)+' kg';
+  document.getElementById('stat-mercado').textContent = Math.round(s.totalSem).toLocaleString() + ' kg';
+  document.getElementById('stat-mercado-sem').textContent = (s.totalSem/1000).toFixed(2) + ' t/sem';
+  document.getElementById('stat-res').textContent   = fmt(s.resSem);
+  document.getElementById('stat-cerdo').textContent = fmt(s.cerdoSem);
+  document.getElementById('stat-pollo').textContent = fmt(s.polloSem);
+
+  // Conquista
+  const conquRes   = s.resSem   * part;
+  const conquCerdo = s.cerdoSem * part;
+  const conquPollo = s.polloSem * part;
+  const conquTotal = conquRes + conquCerdo + conquPollo;
+  document.getElementById('conq-res').textContent   = fmt(conquRes);
+  document.getElementById('conq-cerdo').textContent = fmt(conquCerdo);
+  document.getElementById('conq-pollo').textContent = fmt(conquPollo);
+  document.getElementById('stat-conquista').textContent = Math.round(conquTotal).toLocaleString() + ' kg';
+
+  // Demo
+  document.getElementById('stat-pob').textContent  = s.pobTot.toLocaleString();
+
+  // Densidad — gauge visual por barras
+  renderDensGauge(s.densidad);
+
+  const pctFem = s.pobTot > 0 ? (s.pobFem / s.pobTot * 100).toFixed(1) : 0;
+  const pctMas = s.pobTot > 0 ? (s.pobMas / s.pobTot * 100).toFixed(1) : 0;
+  document.getElementById('pct-fem').textContent = pctFem + '%';
+  document.getElementById('pct-mas').textContent = pctMas + '%';
+  document.getElementById('gender-bar-fem').style.width = pctFem + '%';
+  document.getElementById('gender-bar-mas').style.width = pctMas + '%';
+  document.getElementById('abs-fem').textContent = s.pobFem.toLocaleString('es-MX');
+  document.getElementById('abs-mas').textContent = s.pobMas.toLocaleString('es-MX');
+
+  // Pirámide poblacional
+  renderPiramide(s.p0_14, s.p15_29, s.p30_59, s.p60m, s.pobFem, s.pobMas, s.pobTot);
+
+  // Sucursales
+  renderSucursales(s.expendiosDentro, s.pobTot);
+}
+
+function renderDensGauge(densidad) {
+  // Escala 3 zonas: ≤5,000=Zona Baja, 5,001-10,000=Zona Media, >10,000=Zona Alta
+  const niveles = [
+    { max: 5000,     label: 'Zona Baja',  color: '#22c55e', emoji: '🟢' },
+    { max: 10000,    label: 'Zona Media', color: '#f59e0b', emoji: '🟡' },
+    { max: Infinity, label: 'Zona Alta',  color: '#ef4444', emoji: '🔴' }
+  ];
+  const nivel = niveles.findIndex(n => densidad < n.max);
+  const barFills = [[1,2],[1,2,3],[1,2,3,4,5]];
+  const barCount = barFills[nivel];
+  const heights = [8, 11, 14, 17, 20];
+
+  for (let i = 1; i <= 5; i++) {
+    const bar = document.getElementById(`dg-${i}`);
+    if (!bar) continue;
+    const active = barCount.includes(i);
+    bar.style.height = heights[i-1] + 'px';
+    bar.style.background = active ? niveles[nivel].color : 'var(--border)';
+    bar.style.opacity = active ? '1' : '0.3';
+  }
+
+  const cat = niveles[nivel];
+  document.getElementById('dens-gauge-label').textContent = Math.round(densidad).toLocaleString() + ' hab/km²';
+  document.getElementById('dens-gauge-label').style.color = cat.color;
+  document.getElementById('dens-cat').textContent = cat.emoji + ' ' + cat.label;
+  document.getElementById('dens-cat').style.color = cat.color;
+}
+
+function renderPiramide(p0_14, p15_29, p30_59, p60m, pobFem, pobMas, pobTot) {
+  const container = document.getElementById('piramide-container');
+  if (!container) return;
+
+  // Distribuir por género estimado por grupo (proporcional al total fem/mas)
+  const ratioFem = pobTot > 0 ? pobFem / pobTot : 0.5;
+  const ratioMas = pobTot > 0 ? pobMas / pobTot : 0.5;
+
+  const grupos = [
+    { label: '60+',   total: p60m   },
+    { label: '30–59', total: p30_59 },
+    { label: '15–29', total: p15_29 },
+    { label: '0–14',  total: p0_14  },
+  ];
+
+  // Aplicar ratio de género a cada grupo
+  const conGenero = grupos.map(g => ({
+    label: g.label,
+    fem: Math.round(g.total * ratioFem),
+    mas: Math.round(g.total * ratioMas),
+  }));
+
+  const maxVal = Math.max(...conGenero.flatMap(g => [g.fem, g.mas]));
+  const BAR_MAX = 108; // px máximos por lado dentro del panel angosto
+
+  container.innerHTML = conGenero.map(g => {
+    const wF = maxVal > 0 ? Math.round((g.fem / maxVal) * BAR_MAX) : 0;
+    const wM = maxVal > 0 ? Math.round((g.mas / maxVal) * BAR_MAX) : 0;
+    const fLabel = g.fem >= 1000 ? (g.fem/1000).toFixed(1)+'k' : g.fem;
+    const mLabel = g.mas >= 1000 ? (g.mas/1000).toFixed(1)+'k' : g.mas;
+    return `<div style="display:flex;align-items:center;gap:3px;margin:3px 0;">
+      <div style="flex:1;display:flex;justify-content:flex-end;">
+        <div style="width:${wF}px;height:16px;background:#3b82f6;border-radius:3px 0 0 3px;
+          display:flex;align-items:center;justify-content:flex-end;padding-right:4px;
+          transition:width 0.7s ease;min-width:${wF>0?'16px':'0'};">
+          <span style="font-size:9px;color:rgba(255,255,255,0.85);font-family:var(--font-mono);white-space:nowrap;">${fLabel}</span>
+        </div>
+      </div>
+      <div style="width:36px;text-align:center;font-size:10px;color:var(--muted);font-family:var(--font-mono);flex-shrink:0;">${g.label}</div>
+      <div style="flex:1;display:flex;">
+        <div style="width:${wM}px;height:16px;background:#f97316;border-radius:0 3px 3px 0;
+          display:flex;align-items:center;padding-left:4px;
+          transition:width 0.7s ease;min-width:${wM>0?'16px':'0'};">
+          <span style="font-size:9px;color:rgba(255,255,255,0.85);font-family:var(--font-mono);white-space:nowrap;">${mLabel}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Calcular perfil dominante
+  const pctJoven = pobTot > 0 ? ((p0_14 + p15_29) / pobTot) * 100 : 0;
+  const pctActivo = pobTot > 0 ? (p15_29 + p30_59) / pobTot * 100 : 0;
+  const pctMayor = pobTot > 0 ? p60m / pobTot * 100 : 0;
+
+  let perfilTexto = '', perfilColor = '', perfilBg = '';
+  if (pctJoven > 55) {
+    perfilTexto = 'Zona predominantemente joven — alta demanda futura de proteína.';
+    perfilColor = '#60a5fa'; perfilBg = 'rgba(59,130,246,0.1)';
+  } else if (pctActivo > 50) {
+    perfilTexto = 'Perfil activo 15–59 años — consumidor principal de carne. Zona prioritaria.';
+    perfilColor = '#22c55e'; perfilBg = 'rgba(34,197,94,0.1)';
+  } else if (pctMayor > 25) {
+    perfilTexto = 'Alta proporción de adultos mayores — preferencia por cortes suaves y pollo.';
+    perfilColor = '#f59e0b'; perfilBg = 'rgba(245,158,11,0.1)';
+  } else {
+    perfilTexto = 'Distribución equilibrada — demanda estable en todos los grupos.';
+    perfilColor = '#a78bfa'; perfilBg = 'rgba(167,139,250,0.1)';
+  }
+
+  const perfilEl = document.getElementById('piramide-perfil');
+  if (perfilEl && pobTot > 0) {
+    perfilEl.style.display = 'block';
+    perfilEl.style.background = perfilBg;
+    perfilEl.style.border = `0.5px solid ${perfilColor}`;
+    perfilEl.style.color = perfilColor;
+    perfilEl.textContent = perfilTexto;
+  }
+}
+
+function renderSucursales(expList, pobTot) {
+  const counts = { 'Estándar': 0, 'Ampliado': 0, 'Plus': 0 };
+  expList.forEach(m => {
+    const fmt = m.fmt;
+    if (fmt in counts) counts[fmt]++;
+  });
+
+  const sucHtml = Object.entries(counts).map(([fmt, cnt]) => {
+    const color = FMT_COLOR[fmt];
+    return `<div class="suc-row">
+      <div class="suc-left">
+        <div class="suc-dot" style="background:${color}"></div>
+        <div class="suc-name">${fmt}</div>
+      </div>
+      <div class="suc-count">${cnt} tienda${cnt !== 1 ? 's' : ''}</div>
+    </div>`;
+  }).join('');
+  const sucListEl = document.getElementById('suc-list');
+  if (sucListEl) sucListEl.innerHTML = sucHtml;
+
+  // ── Índice de Saturación — Donut de cobertura ────────────────
+  // Consolidar todos los formatos como un solo tipo de tienda
+  const totalTiendas = Object.values(counts).reduce((a, b) => a + b, 0);
+  const CAP_POR_TIENDA = 4000; // hab que puede atender una tienda (umbral operativo)
+  const THRESH_SAT  = 6000;    // hab/tienda → saturado
+  const THRESH_OPT  = 12000;   // hab/tienda → oportunidad
+
+  const ratio         = totalTiendas > 0 && pobTot > 0 ? Math.round(pobTot / totalTiendas) : null;
+  const coberturaPct  = totalTiendas > 0 ? Math.min(Math.round((totalTiendas * CAP_POR_TIENDA / Math.max(pobTot, 1)) * 100), 100) : 0;
+  const disponiblePct = 100 - coberturaPct;
+  const tiendasParaSat = pobTot > 0 ? Math.max(0, Math.ceil(pobTot / THRESH_SAT) - totalTiendas) : null;
+
+  // Color según estado
+  let satColor, satBg, satLabel;
+  if (ratio === null)         { satColor = '#64748b'; satBg = 'rgba(100,116,139,0.15)'; satLabel = 'Sin tiendas en zona'; }
+  else if (ratio > THRESH_OPT){ satColor = '#22c55e'; satBg = 'rgba(34,197,94,0.15)';  satLabel = 'Oportunidad de mercado'; }
+  else if (ratio > THRESH_SAT){ satColor = '#f59e0b'; satBg = 'rgba(245,158,11,0.15)'; satLabel = 'Mercado en equilibrio'; }
+  else                        { satColor = '#ef4444'; satBg = 'rgba(239,68,68,0.15)';  satLabel = 'Zona saturada'; }
+
+  // Actualizar donut
+  const CIRCUM = 364.4; // 2π × 58
+  const arcEl  = document.getElementById('sat-donut-arc');
+  const pctEl  = document.getElementById('sat-donut-pct');
+  if (arcEl) {
+    const dash = (coberturaPct / 100) * CIRCUM;
+    arcEl.setAttribute('stroke-dasharray', `${dash.toFixed(1)} ${CIRCUM}`);
+    arcEl.setAttribute('stroke', satColor);
+  }
+  if (pctEl) pctEl.textContent = coberturaPct + '%';
+
+  // Métricas laterales
+  const dispEl = document.getElementById('sat-disponible');
+  if (dispEl) { dispEl.textContent = disponiblePct + '%'; dispEl.style.color = satColor; }
+
+  const tiEl = document.getElementById('sat-tiendas');
+  if (tiEl) tiEl.textContent = totalTiendas;
+
+  const ratioEl = document.getElementById('sat-ratio');
+  if (ratioEl) ratioEl.textContent = ratio !== null ? ratio.toLocaleString('es-MX') + ' hab/tienda' : 'Sin tiendas';
+
+  const satEl = document.getElementById('sat-para-saturar');
+  if (satEl) satEl.textContent = tiendasParaSat !== null ? (tiendasParaSat === 0 ? 'Ya saturado' : '~' + tiendasParaSat + ' más') : '—';
+
+  // Badge de estado
+  const badgeEl = document.getElementById('sat-badge');
+  if (badgeEl) {
+    badgeEl.textContent = satLabel;
+    badgeEl.style.background = satBg;
+    badgeEl.style.color = satColor;
+  }
+
+  // Desglose por formato (lista compacta debajo)
+  const satHtml = Object.entries(counts).map(([fmt, cnt]) => {
+    const color = FMT_COLOR[fmt];
+    const habFmt = cnt > 0 && pobTot > 0 ? Math.round(pobTot / cnt).toLocaleString('es-MX') + ' hab' : 'Sin tiendas';
+    return `<div class="suc-row" style="padding:5px 0;">
+      <div class="suc-left">
+        <div class="suc-dot" style="background:${color}"></div>
+        <div class="suc-name" style="font-size:12px;">${fmt}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--text);">${cnt} tienda${cnt !== 1 ? 's' : ''}</div>
+        <div style="font-size:10px;color:var(--muted);">${habFmt}</div>
+      </div>
+    </div>`;
+  }).join('');
+  const satListEl = document.getElementById('sat-list');
+  if (satListEl) satListEl.innerHTML = satHtml;
+}
+
+// ============================================================
+//  CONTROLES DE MODO (Radio / Isócrona)
+// ============================================================
+let currentMode = 'radio';
+let isoProfile  = 'foot-walking'; // valor por defecto siempre válido
+let isoMinutes  = 10;
+let isoLayer       = null;   // polígono de isócrona en el mapa
+let lastIsoFeature = null;   // guardado para exportar KML
+
+function setMode(mode) {
+  currentMode = mode;
+  document.getElementById('tab-radio').classList.toggle('active', mode === 'radio');
+  document.getElementById('tab-isocrona').classList.toggle('active', mode === 'isocrona');
+  document.getElementById('ctrl-radio').style.display     = mode === 'radio'    ? '' : 'none';
+  document.getElementById('ctrl-isocrona').style.display  = mode === 'isocrona' ? '' : 'none';
+  document.getElementById('btn-calcular-iso').style.display = mode === 'isocrona' ? '' : 'none';
+
+  // Si hay un análisis previo, limpiar la isócrona al volver a radio
+  if (mode === 'radio') {
+    if (isoLayer) { map.removeLayer(isoLayer); isoLayer = null; }
+    if (selectedCenter) updateAnalysis();
+  }
+}
+
+function selectIsoMode(btn) {
+  document.querySelectorAll('.iso-mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  isoProfile = btn.dataset.profile;
+}
+
+// Slider isócrona
+document.addEventListener('DOMContentLoaded', () => {
+  const isoSlider = document.getElementById('iso-slider');
+  if (isoSlider) {
+    isoSlider.addEventListener('input', function() {
+      isoMinutes = parseInt(this.value);
+      document.getElementById('iso-val').textContent = isoMinutes + ' min';
+    });
+  }
+});
+
+// ============================================================
+//  CALCULAR ISÓCRONA (OpenRouteService / heigit.org)
+// ============================================================
+async function calcularIsocrona() {
+  if (!selectedCenter) {
+    alert('Haz clic en el mapa primero para seleccionar un punto central.');
+    return;
+  }
+  const apiKey = document.getElementById('ors-apikey').value.trim();
+  if (!apiKey) {
+    document.getElementById('iso-status').textContent = '⚠️ Ingresa tu API key de heigit.org';
+    document.getElementById('iso-status').style.color = 'var(--amber)';
+    return;
+  }
+
+  const statusEl = document.getElementById('iso-status');
+  statusEl.textContent = '⏳ Calculando isócrona...';
+  statusEl.style.color = 'var(--muted)';
+
+  const lat = selectedCenter.lat;
+  const lng = selectedCenter.lng;
+  // Asegurar perfil válido
+  if (!['foot-walking','driving-car','cycling-electric'].includes(isoProfile)) isoProfile = 'foot-walking';
+  const profileLabel = { 'foot-walking':'a pie', 'driving-car':'en carro', 'cycling-electric':'en moto eléctrica' }[isoProfile] || isoProfile;
+
+  try {
+    const resp = await fetch(
+      `https://api.openrouteservice.org/v2/isochrones/${isoProfile}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': apiKey,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json, application/geo+json'
+        },
+        body: JSON.stringify({
+          locations: [[lng, lat]],
+          range: [isoMinutes * 60],   // en segundos
+          range_type: 'time',
+          smoothing: 0.4
+        })
+      }
+    );
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+
+    // Remover isócrona anterior
+    if (isoLayer) { map.removeLayer(isoLayer); isoLayer = null; }
+    // Remover círculo de radio
+    if (circleLayer) { map.removeLayer(circleLayer); circleLayer = null; }
+
+    // Dibujar la isócrona
+    isoLayer = L.geoJSON(data, {
+      style: {
+        color: '#f59e0b',
+        weight: 7,
+        fillColor: '#f59e0b',
+        fillOpacity: 0.10,
+        dashArray: '10 6'
+      }
+    }).addTo(map);
+
+    map.fitBounds(isoLayer.getBounds(), { padding: [60, 60] });
+
+    // Guardar isócrona completa para exportar KML
+    if (data.features && data.features.length > 0) {
+      lastIsoFeature = data.features[0];
+    } else if (data.geometry) {
+      // A veces ORS devuelve directamente el feature
+      lastIsoFeature = data;
+    }
+    currentMode = 'isocrona'; // garantizar modo correcto para exportarKML
+    console.log('lastIsoFeature guardado:', lastIsoFeature ? lastIsoFeature.geometry?.type : 'null');
+
+    // Calcular estadísticas usando el polígono de la isócrona
+    if (MANZANAS_DATA && data.features && data.features[0]) {
+      calcularEstadisticasIso(data.features[0], profileLabel);
+    }
+
+    // Tooltip permanente en el pin con datos de la isócrona
+    if (centerPin) {
+      const modeEmoji = { 'foot-walking':'🚶', 'driving-car':'🚗', 'cycling-electric':'⚡🛵' }[isoProfile] || '📍';
+      const s = currentStats;
+      const pobTot  = s?.pobTot  || 0;
+      const pobFem  = s?.pobFem  || 0;
+      const pobMas  = s?.pobMas  || 0;
+      const totalSem = s?.totalSem || 0;
+      const densidad = s?.densidad || 0;
+      const areaKm2  = s?.areaKm2  || 0;
+      const densD = densidad <= 5000  ? { label: 'Zona Baja',  color: '#22c55e', emoji: '🟢' }
+                  : densidad <= 10000 ? { label: 'Zona Media', color: '#f59e0b', emoji: '🟡' }
+                  :                    { label: 'Zona Alta',  color: '#ef4444', emoji: '🔴' };
+      centerPin.setTooltipContent(`
+        <div style="font-family:var(--font-mono);font-size:12px;line-height:1.8">
+          <div style="font-weight:700;color:#a78bfa;margin-bottom:4px">${modeEmoji} Isócrona · ${isoMinutes} min ${profileLabel}</div>
+          <div>👥 Pob Tot: <strong>${pobTot.toLocaleString('es-MX')}</strong></div>
+          <div>♀ Fem: <strong>${pobTot > 0 ? (pobFem/pobTot*100).toFixed(1) : 0}%</strong> (${pobFem.toLocaleString('es-MX')})</div>
+          <div>♂ Mas: <strong>${pobTot > 0 ? (pobMas/pobTot*100).toFixed(1) : 0}%</strong> (${pobMas.toLocaleString('es-MX')})</div>
+          <div>🥩 Mercado: <strong>${Math.round(totalSem).toLocaleString('es-MX')} kg/sem</strong></div>
+          <div style="margin-top:3px">${densD.emoji} Densidad: <strong style="color:${densD.color}">${densD.label}</strong></div>
+          <div style="margin-top:4px;font-size:10px;color:#64748b">Área ≈ ${areaKm2.toFixed(2)} km²</div>
+        </div>
+      `);
+      centerPin.openTooltip();
+    }
+
+    statusEl.textContent = `✅ Isócrona ${isoMinutes} min ${profileLabel}`;
+    statusEl.style.color = 'var(--green)';
+
+  } catch(err) {
+    console.error('ORS Error:', err);
+    statusEl.textContent = '❌ ' + err.message;
+    statusEl.style.color = 'var(--red)';
+  }
+}
+
+function calcularEstadisticasIso(isoFeature, profileLabel) {
+  // Calcular qué manzanas caen dentro del polígono de la isócrona
+  let pobTot = 0, pobFem = 0, pobMas = 0;
+  let p0_14 = 0, p15_29 = 0, p30_59 = 0, p60m = 0;
+  let mzaBaja = 0, mzaMedia = 0, mzaAlta = 0, manzanasDentro = 0;
+
+  MANZANAS_DATA.features.forEach(f => {
+    try {
+      const centroid = turf.centroid(f);
+      if (turf.booleanPointInPolygon(centroid, isoFeature)) {
+        manzanasDentro++;
+        const p = f.properties;
+        const pop = parseInt(p.POBTOT) || 0;
+        pobTot  += parseInt(p.POBTOT)  || 0;
+        pobFem  += parseInt(p.POBFEM)  || 0;
+        pobMas  += parseInt(p.POBMAS)  || 0;
+        p0_14   += parseInt(p.POB0_14) || 0;
+        p15_29  += parseInt(p.P15A29A) || 0;
+        p30_59  += parseInt(p.P30A59A) || 0;
+        p60m    += parseInt(p.P_60YMAS)|| 0;
+        if (pop < 80)       mzaBaja++;
+        else if (pop < 200) mzaMedia++;
+        else                mzaAlta++;
+      }
+    } catch(e) {}
+  });
+
+  const C = getConsumo();
+  const resSem   = pobTot * C.RES;
+  const cerdoSem = pobTot * C.CERDO;
+  const polloSem = pobTot * C.POLLO;
+  const totalSem = resSem + cerdoSem + polloSem;
+
+  // Expendios dentro del polígono
+  const expendiosDentro = [];
+  expendioMarkers.forEach(m => {
+    try {
+      const mPt = turf.point([m.getLatLng().lng, m.getLatLng().lat]);
+      if (turf.booleanPointInPolygon(mPt, isoFeature)) expendiosDentro.push(m);
+    } catch(e) {}
+  });
+
+  // Área aproximada del polígono
+  const areaKm2 = turf.area(isoFeature) / 1e6;
+  const densidad = areaKm2 > 0 ? pobTot / areaKm2 : 0;
+
+  currentStats = { pobTot, pobFem, pobMas, p0_14, p15_29, p30_59, p60m,
+                   resSem, cerdoSem, polloSem, totalSem, densidad,
+                   expendiosDentro, areaKm2,
+                   mzaBaja, mzaMedia, mzaAlta, manzanasDentro,
+                   _isoLabel: `Isócrona ${isoMinutes} min ${profileLabel}` };
+
+  // Actualizar radio "ficticio" para el contexto de IA
+  currentRadius = Math.round(Math.sqrt(areaKm2 / Math.PI) * 1000);
+
+  updateLegend(expendiosDentro, mzaBaja, mzaMedia, mzaAlta, manzanasDentro);
+
+  // Colorear solo manzanas dentro de la isócrona
+  highlightManzanas(null, null, isoFeature);
+
+  renderStats();
+}
+
+document.getElementById('radius-slider').addEventListener('input', function() {
+  currentRadius = parseInt(this.value);
+  document.getElementById('radius-val').textContent = currentRadius >= 1000
+    ? (currentRadius/1000).toFixed(1) + ' km'
+    : currentRadius + ' m';
+  if (selectedCenter && currentMode === 'radio') updateAnalysis();
+});
+
+document.getElementById('part-slider').addEventListener('input', function() {
+  currentPart = parseInt(this.value);
+  document.getElementById('part-val').textContent = currentPart + '%';
+  if (currentStats) renderStats();
+});
+
+function centerMap() {
+  map.setView([21.12, -101.68], 11);
+}
+
+function setCenter() {
+  if (!selectedCenter) {
+    alert('Haz clic en el mapa primero para seleccionar un punto central.');
+    return;
+  }
+  // Zoom calculado para que el radio ocupe ~50% de la pantalla
+  let zoomLevel;
+  if      (currentRadius <= 400)  zoomLevel = 17;
+  else if (currentRadius <= 800)  zoomLevel = 16;
+  else if (currentRadius <= 1500) zoomLevel = 15;
+  else if (currentRadius <= 3000) zoomLevel = 14;
+  else if (currentRadius <= 6000) zoomLevel = 13;
+  else                             zoomLevel = 12;
+  map.flyTo(selectedCenter, zoomLevel, { animate: true, duration: 0.9 });
+}
+
+function toggleChip(el) {
+  const fmt = el.dataset.fmt;
+  el.classList.toggle('off');
+  if (visibleFmts.has(fmt)) visibleFmts.delete(fmt);
+  else visibleFmts.add(fmt);
+  updateMarkersVisibility();
+  if (currentStats) renderStats();
+}
+
+function updateMarkersVisibility() {
+  expendioMarkers.forEach(m => {
+    if (visibleFmts.has(m.fmt)) {
+      if (!map.hasLayer(m)) m.addTo(map);
+    } else {
+      if (map.hasLayer(m)) map.removeLayer(m);
+    }
+  });
+}
+
+// ============================================================
+//  EXPORTS
+// ============================================================
+function exportarCSV() {
+  if (!currentStats) { alert('Primero selecciona un área de análisis.'); return; }
+  const s = currentStats;
+  const part = currentPart / 100;
+  const rows = [
+    ['Campo','Valor'],
+    ['Nombre Prospecto', document.getElementById('prospecto-input').value || '—'],
+    ['Fecha', new Date().toLocaleDateString('es-MX')],
+    ['Radio (m)', currentRadius],
+    ['Población Total', s.pobTot],
+    ['Población Femenina', s.pobFem],
+    ['Población Masculina', s.pobMas],
+    ['Mercado Total (kg/sem)', Math.round(s.totalSem)],
+    ['Res (kg/sem)', Math.round(s.resSem)],
+    ['Cerdo (kg/sem)', Math.round(s.cerdoSem)],
+    ['Pollo (kg/sem)', Math.round(s.polloSem)],
+    ['Participación %', currentPart],
+    ['Conquista Total (kg)', Math.round(s.totalSem * part)],
+    ['Densidad (hab/km2)', Math.round(s.densidad)],
+    ['Sucursales en área', s.expendiosDentro.length],
+  ];
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `BARA_Prospecto_${Date.now()}.csv`;
+  a.click();
+}
+
+// Listeners parámetros de consumo
+['c-res','c-cerdo','c-pollo'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (selectedCenter) updateAnalysis();
+  });
+});
+
+// ============================================================
+//  EXPORT PDF — CAPTURA FIEL DE PANTALLA
+//  Estrategia:
+//    1. leaflet-image  → captura mapa Leaflet (tiles + SVG layers)
+//    2. html2canvas    → captura panel izquierdo (DOM puro, sin cross-origin)
+//    3. jsPDF          → compone ambas imágenes + topbar + footer
+// ============================================================
+
+/** Carga leaflet-image dinámicamente si no está disponible. */
+function loadLeafletImage() {
+  return new Promise((resolve, reject) => {
+    if (window.leafletImage) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/leaflet-image@0.4.0/leaflet-image.js';
+    s.onload  = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+/**
+ * Captura el mapa Leaflet completo (tiles + SVG) usando leaflet-image.
+ * Si falla por CORS, usa canvas manual con solo capas vectoriales.
+ */
+function captureMapCanvas() {
+  return new Promise(async (resolve) => {
+    try {
+      await loadLeafletImage();
+      window.leafletImage(map, (err, canvas) => {
+        if (err || !canvas) {
+          console.warn('leaflet-image falló:', err);
+          resolve(buildMapCanvasFallback());
+        } else {
+          // Dibujar nuestras capas vectoriales encima del mapa capturado
+          const ctx = canvas.getContext('2d');
+          drawLayersOnCanvas(ctx, canvas.width, canvas.height);
+          resolve(canvas);
+        }
+      });
+    } catch(e) {
+      console.warn('leaflet-image no disponible:', e);
+      resolve(buildMapCanvasFallback());
+    }
+  });
+}
+
+/** Fallback: canvas oscuro + solo capas vectoriales si leaflet-image falla. */
+function buildMapCanvasFallback() {
+  const mapContainer = document.getElementById('map');
+  const mapW = mapContainer.offsetWidth;
+  const mapH = mapContainer.offsetHeight;
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = mapW;
+  canvas.height = mapH;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, mapW, mapH);
+
+  // Grid sutil
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 0.5;
+  for (let x = 0; x < mapW; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,mapH); ctx.stroke(); }
+  for (let y = 0; y < mapH; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(mapW,y); ctx.stroke(); }
+
+  ctx.font = '10px monospace';
+  ctx.fillStyle = 'rgba(100,116,139,0.5)';
+  ctx.fillText('Mapa base no disponible (tiles cross-origin)', 12, mapH - 12);
+
+  drawLayersOnCanvas(ctx, mapW, mapH);
+  return canvas;
+}
+
+/** Convierte lat/lng → píxeles del contenedor del mapa. */
+function latLngToMapPx(lat, lng) {
+  const pt = map.latLngToContainerPoint(L.latLng(lat, lng));
+  return { x: pt.x, y: pt.y };
+}
+
+/**
+ * Dibuja sobre un ctx de canvas:
+ *   A. Manzanas coloreadas dentro del área
+ *   B. Círculo del radio o polígono de isócrona
+ *   C. Pin central
+ *   D. Etiqueta de contexto
+ */
+function drawLayersOnCanvas(ctx, mapW, mapH) {
+  ctx.save();
+
+  // ── A. Manzanas ──
+  if (MANZANAS_DATA && selectedCenter) {
+    const centerPt = turf.point([selectedCenter.lng, selectedCenter.lat]);
+    const bufferKm = currentRadius / 1000;
+
+    MANZANAS_DATA.features.forEach(f => {
+      try {
+        if (!f.geometry || f.geometry.type !== 'Polygon') return;
+        const centroid = turf.centroid(f);
+        let dentro = false;
+        if (currentMode === 'isocrona' && lastIsoFeature) {
+          dentro = turf.booleanPointInPolygon(centroid, lastIsoFeature);
+        } else {
+          const dist = turf.distance(centerPt, centroid, { units: 'kilometers' });
+          dentro = dist <= bufferKm;
+        }
+        if (!dentro) return;
+
+        const pop = parseInt(f.properties.POBTOT) || 0;
+        if (pop === 0) return;
+        let fc, fa;
+        if      (pop < 80)  { fc=[34,197,94];   fa=0.60; }
+        else if (pop < 200) { fc=[245,158,11];  fa=0.65; }
+        else                { fc=[239,68,68];   fa=0.70; }
+
+        const ring = f.geometry.coordinates[0];
+        if (ring.length < 3) return;
+        ctx.beginPath();
+        ring.forEach(([lng, lat], i) => {
+          const px = latLngToMapPx(lat, lng);
+          i === 0 ? ctx.moveTo(px.x,px.y) : ctx.lineTo(px.x,px.y);
+        });
+        ctx.closePath();
+        ctx.fillStyle   = `rgba(${fc[0]},${fc[1]},${fc[2]},${fa})`;
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth   = 0.6;
+        ctx.fill(); ctx.stroke();
+      } catch(e) {}
+    });
+  }
+
+  // ── B. Radio o Isócrona ──
+  if (selectedCenter) {
+    if (currentMode === 'radio') {
+      const lat = selectedCenter.lat, lng = selectedCenter.lng;
+      const R = currentRadius / 1000;
+      const pts = [];
+      for (let i = 0; i <= 90; i++) {
+        const a = (i/90)*2*Math.PI;
+        const dLat = (R/111.32)*Math.cos(a);
+        const dLng = (R/(111.32*Math.cos(lat*Math.PI/180)))*Math.sin(a);
+        pts.push(latLngToMapPx(lat+dLat, lng+dLng));
+      }
+      ctx.beginPath();
+      pts.forEach((pt,i) => i===0 ? ctx.moveTo(pt.x,pt.y) : ctx.lineTo(pt.x,pt.y));
+      ctx.closePath();
+      ctx.fillStyle='rgba(245,158,11,0.08)'; ctx.strokeStyle='#f59e0b';
+      ctx.lineWidth=3; ctx.setLineDash([10,6]);
+      ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+
+    } else if (currentMode === 'isocrona' && lastIsoFeature) {
+      const geom = lastIsoFeature.geometry;
+      const rings = geom.type==='Polygon' ? [geom.coordinates[0]]
+                  : geom.coordinates.map(p=>p[0]);
+      rings.forEach(ring => {
+        ctx.beginPath();
+        ring.forEach(([lng,lat],i) => {
+          const px=latLngToMapPx(lat,lng);
+          i===0 ? ctx.moveTo(px.x,px.y) : ctx.lineTo(px.x,px.y);
+        });
+        ctx.closePath();
+        ctx.fillStyle='rgba(11,181,245,0.10)'; ctx.strokeStyle='#0bb5f5';
+        ctx.lineWidth=3; ctx.fill(); ctx.stroke();
+      });
+    }
+  }
+
+  // ── C. Pin central ──
+  if (selectedCenter) {
+    const px = latLngToMapPx(selectedCenter.lat, selectedCenter.lng);
+    ctx.beginPath(); ctx.arc(px.x,px.y,11,0,2*Math.PI);
+    ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(px.x,px.y,7,0,2*Math.PI);
+    ctx.fillStyle='#3b82f6'; ctx.strokeStyle='#ffffff'; ctx.lineWidth=2.5;
+    ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(px.x,px.y,2.5,0,2*Math.PI);
+    ctx.fillStyle='#ffffff'; ctx.fill();
+  }
+
+  // ── D. Etiqueta info ──
+  if (selectedCenter) {
+    const lbl = currentMode==='radio'
+      ? `Radio: ${currentRadius>=1000?(currentRadius/1000).toFixed(1)+' km':currentRadius+' m'}`
+      : `Isócrona: ${document.getElementById('iso-val')?.textContent||'—'}`;
+    const bw=240, bh=42, bx=12, by=mapH-12-bh;
+    ctx.fillStyle='rgba(10,12,16,0.85)'; ctx.strokeStyle='rgba(59,130,246,0.45)';
+    ctx.lineWidth=1;
+    _roundRect(ctx,bx,by,bw,bh,6); ctx.fill(); ctx.stroke();
+    ctx.font='bold 12px monospace'; ctx.fillStyle='#60a5fa';
+    ctx.fillText(lbl, bx+10, by+17);
+    ctx.font='10px monospace'; ctx.fillStyle='#94a3b8';
+    ctx.fillText(`${selectedCenter.lat.toFixed(5)}, ${selectedCenter.lng.toFixed(5)}  ·  zoom ${map.getZoom()}`, bx+10, by+33);
+  }
+
+  ctx.restore();
+}
+
+function _roundRect(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+
+/** Fallback canvas para el panel si html2canvas falla. */
+function crearPanelFallback(w, h) {
+  const canvas = document.createElement('canvas');
+  canvas.width = w||480; canvas.height = h||800;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle='#0a0c10'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  if (!currentStats) return canvas;
+  const s = currentStats;
+  let y = 30;
+  const line = (txt,color,size,bold) => {
+    ctx.font=`${bold?'bold':'normal'} ${size||13}px sans-serif`;
+    ctx.fillStyle=color||'#e2e8f0'; ctx.fillText(txt,18,y);
+    y+=(size||13)+8;
+  };
+  const sep=()=>{ ctx.strokeStyle='#232835';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();y+=10; };
+  const radioLbl = currentMode==='radio'
+    ?`Radio: ${currentRadius>=1000?(currentRadius/1000).toFixed(1)+' km':currentRadius+' m'}`
+    :`Isócrona: ${document.getElementById('iso-val')?.textContent||'—'}`;
+  line('ÁREA DE INFLUENCIA','#64748b',11); line(radioLbl,'#60a5fa',14,true); sep();
+  line('VALOR DEL MERCADO','#64748b',11);
+  line(`${Math.round(s.totalSem).toLocaleString('es-MX')} kg/sem`,'#3b82f6',20,true);
+  line(`RES ${Math.round(s.resSem).toLocaleString()} kg`,'#a78bfa',12);
+  line(`CERDO ${Math.round(s.cerdoSem).toLocaleString()} kg`,'#f59e0b',12);
+  line(`POLLO ${Math.round(s.polloSem).toLocaleString()} kg`,'#22c55e',12); sep();
+  line('PERFIL DEMOGRÁFICO','#64748b',11);
+  line(`Población: ${s.pobTot.toLocaleString('es-MX')}`,'#e2e8f0',14,true);
+  line(`Densidad: ${Math.round(s.densidad).toLocaleString()} hab/km²`,'#94a3b8',12);
+  line(`Fem ${s.pobTot>0?(s.pobFem/s.pobTot*100).toFixed(1):0}%  Mas ${s.pobTot>0?(s.pobMas/s.pobTot*100).toFixed(1):0}%`,'#94a3b8',12); sep();
+  line('MÍNIMO A CONQUISTAR','#64748b',11);
+  line(`${Math.round(s.totalSem*currentPart/100).toLocaleString('es-MX')} kg`,'#22c55e',20,true);
+  return canvas;
+}
+
+// ============================================================
+//  EXPORT PDF — función principal
+// ============================================================
+async function exportarPDF() {
+  if (!currentStats) { alert('Primero selecciona un área de análisis.'); return; }
+
+  const overlay = document.getElementById('pdf-overlay');
+  const msgEl   = document.getElementById('pdf-msg');
+  const btnPDF  = document.getElementById('btn-pdf');
+
+  btnPDF.textContent='⏳ Generando PDF';
+  btnPDF.style.background='rgba(239,68,68,0.18)';
+  btnPDF.style.borderColor='rgba(239,68,68,0.6)';
+  btnPDF.style.color='#ef4444';
+  btnPDF.disabled=true;
+
+  await new Promise(r=>setTimeout(r,80));
+  overlay.classList.add('show');
+
+  try {
+    const {jsPDF} = window.jspdf;
+    const prospecto = document.getElementById('prospecto-input').value||'—';
+    const fecha = new Date().toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'});
+
+    const doc = new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+    const WL=297, HL=210, FOOTER_H=10, TOPBAR_H=12;
+    const CONTENT_H = HL-FOOTER_H-TOPBAR_H;
+
+    // ── 1. Capturar MAPA con leaflet-image ──
+    msgEl.textContent='Capturando mapa...';
+    overlay.style.display='';
+    await new Promise(r=>setTimeout(r,150));
+
+    const mapCanvas = await captureMapCanvas();
+
+    // ── 2. Capturar PANEL izquierdo ──
+    msgEl.textContent='Capturando panel...';
+    overlay.style.display='none';
+
+    const panelEl = document.getElementById('panel');
+    // Scroll al inicio del panel para capturar desde arriba
+    const statsArea = document.getElementById('stats-area');
+    const prevScroll = statsArea ? statsArea.scrollTop : 0;
+    if (statsArea) statsArea.scrollTop = 0;
+
+    let panelCanvas = null;
+    try {
+      panelCanvas = await html2canvas(panelEl, {
+        backgroundColor:'#0a0c10',
+        scale:2,
+        useCORS:false,
+        allowTaint:false,
+        foreignObjectRendering:false,
+        scrollX:0,
+        scrollY:0,
+        logging:false,
+        imageTimeout:8000,
+        onclone:(clonedDoc) => {
+          // Ocultar imgs externas para evitar tainted canvas
+          clonedDoc.querySelectorAll('img').forEach(img => {
+            if(img.src && img.src.startsWith('http')) img.style.visibility='hidden';
+          });
+          // Scroll del clon al inicio
+          const ca = clonedDoc.getElementById('stats-area');
+          if(ca) ca.scrollTop=0;
+        }
+      });
+    } catch(e) {
+      console.warn('Panel html2canvas falló, usando fallback:', e);
+      panelCanvas = crearPanelFallback(panelEl.offsetWidth*2, (window.innerHeight-58)*2);
+    }
+
+    if (statsArea) statsArea.scrollTop = prevScroll;
+
+    // ── 3. Componer PDF ──
+    overlay.style.display='';
+    msgEl.textContent='Componiendo PDF...';
+
+    // Fondo general
+    doc.setFillColor(10,12,16);
+    doc.rect(0,0,WL,HL,'F');
+
+    // Proporciones reales
+    const panelWpx = panelEl.offsetWidth;
+    const mapWpx   = document.getElementById('map').offsetWidth;
+    const totalWpx = panelWpx + mapWpx;
+    const panelWmm = (panelWpx/totalWpx)*WL;
+    const mapWmm   = WL-panelWmm;
+
+    // Panel izquierdo
+    if (panelCanvas && panelCanvas.width>0) {
+      const pImg = panelCanvas.toDataURL('image/jpeg',0.92);
+      doc.addImage(pImg,'JPEG',0,TOPBAR_H,panelWmm,CONTENT_H);
+    }
+
+    // Mapa
+    if (mapCanvas && mapCanvas.width>0) {
+      const mImg = mapCanvas.toDataURL('image/jpeg',0.93);
+      doc.addImage(mImg,'JPEG',panelWmm,TOPBAR_H,mapWmm,CONTENT_H);
+    }
+
+    // ── Topbar (jsPDF nativo — sin cross-origin) ──
+    doc.setFillColor(10,12,16);
+    doc.rect(0,0,WL,TOPBAR_H,'F');
+    doc.setDrawColor(35,40,53); doc.setLineWidth(0.3);
+    doc.line(0,TOPBAR_H,WL,TOPBAR_H);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(8); doc.setTextColor(96,165,250);
+    doc.text('S.I.G.Ex Retail v3',5,TOPBAR_H-4);
+    doc.setFontSize(9); doc.setTextColor(226,232,240);
+    doc.text('Visualizador Geo-Espacial y Análisis del Entorno — Zona Bajío',WL/2,TOPBAR_H-4,{align:'center'});
+    doc.setFont('helvetica','normal');
+    doc.setFontSize(7.5); doc.setTextColor(100,116,139);
+    doc.text(prospecto,WL-5,TOPBAR_H-4,{align:'right'});
+
+    // ── Footer ──
+    doc.setFillColor(10,12,16);
+    doc.rect(0,HL-FOOTER_H,WL,FOOTER_H,'F');
+    doc.setDrawColor(35,40,53); doc.line(0,HL-FOOTER_H,WL,HL-FOOTER_H);
+    doc.setFont('helvetica','bold');
+    doc.setFontSize(7); doc.setTextColor(96,165,250);
+    doc.text('SAGE RETAIL V3',5,HL-3.5);
+    doc.setFont('helvetica','normal'); doc.setTextColor(100,116,139);
+    doc.text(`Prospecto: ${prospecto}  ·  ${fecha}`,42,HL-3.5);
+
+    // ── Separador panel/mapa ──
+    doc.setDrawColor(35,40,53); doc.setLineWidth(0.4);
+    doc.line(panelWmm,TOPBAR_H,panelWmm,HL-FOOTER_H);
+
+    msgEl.textContent='Guardando archivo...';
+    const nombre = prospecto!=='—' ? prospecto.replace(/\s+/g,'_') : 'Prospecto';
+    doc.save(`SAGE_${nombre}_${new Date().toISOString().slice(0,10)}.pdf`);
+
+  } catch(err) {
+    console.error('Error generando PDF:',err);
+    alert('Error al generar PDF: '+err.message);
+  } finally {
+    overlay.classList.remove('show');
+    btnPDF.textContent='↓ PDF';
+    btnPDF.style.background='rgba(34,197,94,0.15)';
+    btnPDF.style.borderColor='rgba(34,197,94,0.5)';
+    btnPDF.style.color='#22c55e';
+    btnPDF.disabled=false;
+  }
+}
+
+// ============================================================
+//  TOMTOM TRÁFICO EN TIEMPO REAL
+// ============================================================
+let ttApiKey = 'DH7Cgw6EPz95ZnC1H8Uo51fJxeU0N3aX';
+let ttLayers = { flow: null, inc: null };
+let ttPanelOpen = false;
+
+function toggleTomTomPanel() {
+  ttPanelOpen = !ttPanelOpen;
+  const panel = document.getElementById('tomtom-panel');
+  const btn   = document.getElementById('bmap-tomtom');
+  panel.style.display = ttPanelOpen ? 'block' : 'none';
+  if (ttPanelOpen) {
+    btn.classList.add('active');
+    btn.style.borderColor = '#00d4ff';
+    btn.style.color = '#00d4ff';
+    btn.style.background = 'rgba(0,212,255,0.12)';
+  } else {
+    btn.classList.remove('active');
+    btn.style.borderColor = 'rgba(0,212,255,0.3)';
+    btn.style.color = 'rgba(0,212,255,0.7)';
+    btn.style.background = '';
+  }
+}
+
+async function applyTomTom() {
+  const key = document.getElementById('tt-apikey').value.trim();
+  if (!key) {
+    setTomTomStatus('⚠ Ingresa una API Key válida', '#ef4444');
+    return;
+  }
+
+  setTomTomStatus('🔄 Verificando API Key...', '#f59e0b');
+
+  // ── Validar la key con un tile de prueba antes de aplicar ──
+  const z = 12, x = 1064, y = 1929; // tile sobre León, GTO
+  const testUrl = `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/${z}/${x}/${y}.png?key=${key}`;
+  try {
+    const res = await fetch(testUrl, { method: 'HEAD' });
+    if (res.status === 403 || res.status === 401) {
+      setTomTomStatus('✖ API Key inválida o sin permiso de Traffic API', '#ef4444');
+      return;
+    }
+    if (res.status === 429) {
+      setTomTomStatus('⚠ Límite de peticiones alcanzado (429)', '#f59e0b');
+      return;
+    }
+    if (!res.ok && res.status !== 404) {
+      setTomTomStatus(`✖ Error del servidor TomTom (${res.status})`, '#ef4444');
+      return;
+    }
+  } catch(e) {
+    // Si falla el HEAD (CORS), continuar igualmente — los tiles pueden funcionar igual
+    console.warn('HEAD check falló (posible CORS), continuando:', e.message);
+  }
+
+  ttApiKey = key;
+
+  // ── Remover capas anteriores ──
+  removeTomTomLayers();
+
+  // ── URL correcta según documentación oficial TomTom Traffic API v4 ──
+  // flow: estilo relative0 = colores rojo/naranja/amarillo/verde (ideal sobre mapa oscuro)
+  ttLayers.flow = L.tileLayer(
+    `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${ttApiKey}`,
+    {
+      attribution: '&copy; <a href="https://tomtom.com">TomTom</a>',
+      opacity: parseFloat(document.getElementById('tt-opacity-flow').value) / 100,
+      maxZoom: 20,
+      zIndex: 400,
+      crossOrigin: true
+    }
+  );
+
+  // incidents: estilo s3 = iconos estándar de incidentes
+  ttLayers.inc = L.tileLayer(
+    `https://api.tomtom.com/traffic/map/4/tile/incidents/s3/{z}/{x}/{y}.png?key=${ttApiKey}`,
+    {
+      attribution: '&copy; <a href="https://tomtom.com">TomTom</a>',
+      opacity: parseFloat(document.getElementById('tt-opacity-inc').value) / 100,
+      maxZoom: 20,
+      zIndex: 401,
+      crossOrigin: true
+    }
+  );
+
+  // ── Detectar errores en los tiles al cargar ──
+  let tileErrorShown = false;
+  ttLayers.flow.on('tileerror', function(err) {
+    if (!tileErrorShown) {
+      tileErrorShown = true;
+      const status = err.tile?.src?.includes('403') ? 403 : '?';
+      setTomTomStatus('✖ Error cargando tiles de flujo — revisa tu key', '#ef4444');
+      console.error('TomTom flow tile error:', err);
+    }
+  });
+  ttLayers.flow.on('tileload', function() {
+    tileErrorShown = false;
+  });
+
+  // ── Agregar capas según toggles ──
+  if (document.getElementById('tt-toggle-flow').checked) ttLayers.flow.addTo(map);
+  if (document.getElementById('tt-toggle-inc').checked)  ttLayers.inc.addTo(map);
+
+  // ── Asegurar que marcadores queden encima ──
+  setTimeout(() => {
+    expendioMarkers.forEach(m => m.bringToFront && m.bringToFront());
+  }, 300);
+
+  // ── Mostrar leyenda ──
+  document.getElementById('tt-legend').style.display = 'block';
+
+  setTomTomStatus('✓ Capas TomTom activas · Tiempo real', '#22c55e');
+  setTimeout(() => { if (!tileErrorShown) setTomTomStatus('', ''); }, 3500);
+}
+
+function removeTomTomLayers() {
+  ['flow', 'inc'].forEach(k => {
+    if (ttLayers[k] && map.hasLayer(ttLayers[k])) map.removeLayer(ttLayers[k]);
+    ttLayers[k] = null;
+  });
+  document.getElementById('tt-legend').style.display = 'none';
+}
+
+function toggleTomTomLayer(name, checkbox) {
+  const layer = ttLayers[name];
+  if (!layer) {
+    setTomTomStatus('⚠ Aplica primero tu API Key', '#ef4444');
+    checkbox.checked = false;
+    return;
+  }
+  if (checkbox.checked) layer.addTo(map);
+  else if (map.hasLayer(layer)) map.removeLayer(layer);
+}
+
+function setTomTomOpacity(name, val) {
+  if (ttLayers[name]) ttLayers[name].setOpacity(val / 100);
+}
+
+function setTomTomStatus(msg, color) {
+  const el = document.getElementById('tt-status');
+  el.textContent = msg;
+  el.style.color = color || 'var(--muted)';
+}
+
+// ============================================================
+//  ACTUALIZAR LEYENDA CON CONTEOS DINÁMICOS
+// ============================================================
+function updateLegend(expendiosDentro, mzaBaja, mzaMedia, mzaAlta, mzaTotal) {
+  // — Tiendas por formato —
+  const counts = { 'Estándar': 0, 'Ampliado': 0, 'Plus': 0 };
+  expendiosDentro.forEach(m => { if (m.fmt in counts) counts[m.fmt]++; });
+
+  const show = (id, val, suffix) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val + suffix;
+    el.style.display = 'inline';
+  };
+
+  show('leg-cnt-std', counts['Estándar'], ' 🏪');
+  show('leg-cnt-amp', counts['Ampliado'], ' 🏪');
+  show('leg-cnt-pls', counts['Plus'],     ' 🏪');
+
+  // — Porcentaje de manzanas por densidad —
+  const total = mzaTotal || 1;
+  const pctLow  = Math.round(mzaBaja  / total * 100);
+  const pctMed  = Math.round(mzaMedia / total * 100);
+  const pctHigh = Math.round(mzaAlta  / total * 100);
+
+  show('leg-pct-low',  pctLow,  '%');
+  show('leg-pct-med',  pctMed,  '%');
+  show('leg-pct-high', pctHigh, '%');
+}
+
+// ============================================================
+//  BOOTSTRAP
+// ============================================================
+async function bootstrap() {
+  // Ocultar loader siempre al terminar, pase lo que pase
+  const hideLoader = () => {
+    const loader = document.getElementById('loader');
+    if (!loader) return;
+    loader.style.opacity = '0';
+    setTimeout(() => { if (loader.parentNode) loader.remove(); }, 400);
+  };
+
+  try {
+    initMap();
+  } catch(e) {
+    console.error('Error en initMap:', e);
+    hideLoader();
+    return;
+  }
+
+  try {
+    const resExp = await fetch('Tiendas.json');
+    if (resExp.ok) {
+      const expData = await resExp.json();
+      let geojson = expData;
+      if (expData.type === 'Topology') {
+        const objectName = Object.keys(expData.objects)[0];
+        geojson = topojson.feature(expData, expData.objects[objectName]);
+      }
+      loadExpendios(geojson);
+    } else {
+      console.warn('Tiendas.json no encontrado junto al HTML.');
+    }
+  } catch(e) {
+    console.warn('No se pudo cargar Tiendas.json:', e.message);
+  }
+
+  try {
+    const resMza = await fetch('MZA_GTO_POB.json');
+    if (resMza.ok) {
+      const mzaData = await resMza.json();
+      loadManzanas(mzaData);
+      if (mzaData.features && mzaData.features.length > 0) {
+        try {
+          const bounds = L.geoJSON(mzaData).getBounds();
+          map.fitBounds(bounds, { padding: [60, 60] });
+        } catch(e) {}
+      }
+    } else {
+      console.warn('MZA_GTO_POB.json no encontrado.');
+    }
+  } catch(e) {
+    console.warn('No se pudo cargar MZA_GTO_POB.json:', e.message);
+  }
+
+  // Ocultar loader — siempre, independientemente de si cargaron los archivos
+  hideLoader();
+
+  // TomTom se carga de forma completamente independiente, sin bloquear nada
+  setTimeout(async () => {
+    try {
+      const inputEl = document.getElementById('tt-apikey');
+      if (inputEl) inputEl.value = ttApiKey;
+      await applyTomTom();
+    } catch(e) {
+      console.warn('TomTom no se pudo cargar automáticamente:', e.message);
+    }
+  }, 800);
+}
+
+window.addEventListener('load', bootstrap);
+
+// ============================================================
+//  EXPORTAR KML (Radio o Isócrona)
+// ============================================================
+function exportarKML() {
+  let kmlContent = '';
+  const name = document.getElementById('prospecto-input')?.value || 'Geoportal';
+
+  // Datos demográficos desde currentStats
+  const s        = currentStats || {};
+  const pobTot   = s.pobTot   || 0;
+  const pobFem   = s.pobFem   || 0;
+  const pobMas   = s.pobMas   || 0;
+  const totalSem = s.totalSem || 0;
+  const resSem   = s.resSem   || 0;
+  const cerdoSem = s.cerdoSem || 0;
+  const polloSem = s.polloSem || 0;
+  const densidad = s.densidad || 0;
+  const areaKm2  = s.areaKm2  || 0;
+  const pctFem   = pobTot > 0 ? (pobFem / pobTot * 100).toFixed(1) : '0.0';
+  const pctMas   = pobTot > 0 ? (pobMas / pobTot * 100).toFixed(1) : '0.0';
+  const densLabel = densidad <= 5000  ? 'Zona Baja'
+                  : densidad <= 10000 ? 'Zona Media' : 'Zona Alta';
+
+  // Bloque de atributos y descripción reutilizable en ambos modos
+  const extData = `
+      <ExtendedData>
+        <Data name="Prospecto"><value>${name}</value></Data>
+        <Data name="Poblacion_Total"><value>${pobTot.toLocaleString('es-MX')}</value></Data>
+        <Data name="Pob_Femenina"><value>${pobFem.toLocaleString('es-MX')} (${pctFem}%)</value></Data>
+        <Data name="Pob_Masculina"><value>${pobMas.toLocaleString('es-MX')} (${pctMas}%)</value></Data>
+        <Data name="Mercado_Total_kg_sem"><value>${Math.round(totalSem).toLocaleString('es-MX')}</value></Data>
+        <Data name="Mercado_Res_kg_sem"><value>${Math.round(resSem).toLocaleString('es-MX')}</value></Data>
+        <Data name="Mercado_Cerdo_kg_sem"><value>${Math.round(cerdoSem).toLocaleString('es-MX')}</value></Data>
+        <Data name="Mercado_Pollo_kg_sem"><value>${Math.round(polloSem).toLocaleString('es-MX')}</value></Data>
+        <Data name="Densidad_hab_km2"><value>${Math.round(densidad).toLocaleString('es-MX')} (${densLabel})</value></Data>
+        <Data name="Area_km2"><value>${areaKm2.toFixed(2)}</value></Data>
+      </ExtendedData>
+      <description><![CDATA[
+        <b>${name}</b><br/>
+        &#128101; Población Total: <b>${pobTot.toLocaleString('es-MX')}</b><br/>
+        &#9792; Femenina: <b>${pctFem}%</b> (${pobFem.toLocaleString('es-MX')})<br/>
+        &#9794; Masculina: <b>${pctMas}%</b> (${pobMas.toLocaleString('es-MX')})<br/>
+        &#127969; Mercado Total: <b>${Math.round(totalSem).toLocaleString('es-MX')} kg/sem</b><br/>
+        &nbsp;&nbsp;• Res: ${Math.round(resSem).toLocaleString('es-MX')} kg/sem<br/>
+        &nbsp;&nbsp;• Cerdo: ${Math.round(cerdoSem).toLocaleString('es-MX')} kg/sem<br/>
+        &nbsp;&nbsp;• Pollo: ${Math.round(polloSem).toLocaleString('es-MX')} kg/sem<br/>
+        &#128202; Densidad: <b>${Math.round(densidad).toLocaleString('es-MX')} hab/km&#178;</b> (${densLabel})<br/>
+        &#128208; Área: <b>${areaKm2.toFixed(2)} km&#178;</b>
+      ]]></description>`;
+
+  if (currentMode === 'radio' && selectedCenter && currentRadius) {
+    const lat = selectedCenter.lat;
+    const lng = selectedCenter.lng;
+    const R   = currentRadius / 1000;
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const angle = (i / 64) * 2 * Math.PI;
+      const dLat  = (R / 111.32) * Math.cos(angle);
+      const dLng  = (R / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(angle);
+      pts.push(`${(lng + dLng).toFixed(6)},${(lat + dLat).toFixed(6)},0`);
+    }
+    const coords     = pts.join(' ');
+    const radioLabel = currentRadius >= 1000 ? (currentRadius/1000).toFixed(1)+' km' : currentRadius+' m';
+
+    kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name} — Radio ${radioLabel}</name>
+    <Style id="radioStyle">
+      <LineStyle><color>ff0000ff</color><width>3</width></LineStyle>
+      <PolyStyle><color>330000ff</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Radio ${radioLabel} — ${name}</name>
+      <styleUrl>#radioStyle</styleUrl>
+      ${extData}
+      <Polygon>
+        <outerBoundaryIs><LinearRing>
+          <coordinates>${coords}</coordinates>
+        </LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>Centro — ${name}</name>
+      <Point><coordinates>${lng.toFixed(6)},${lat.toFixed(6)},0</coordinates></Point>
+    </Placemark>
+  </Document>
+</kml>`;
+
+  } else if (currentMode === 'isocrona' && lastIsoFeature) {
+    const geom = lastIsoFeature.geometry;
+    let outerRing;
+    if (geom.type === 'Polygon') {
+      outerRing = geom.coordinates[0];
+    } else if (geom.type === 'MultiPolygon') {
+      outerRing = geom.coordinates[0][0];
+    } else {
+      alert('Geometría de isócrona no soportada: ' + geom.type);
+      return;
+    }
+    const coords       = outerRing.map(([lng, lat]) => `${lng.toFixed(6)},${lat.toFixed(6)},0`).join(' ');
+    const profileLabel = { 'foot-walking':'a pie', 'driving-car':'en carro', 'cycling-electric':'en moto eléctrica' }[isoProfile] || isoProfile;
+
+    kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name} — Isócrona ${isoMinutes} min ${profileLabel}</name>
+    <Style id="isoStyle">
+      <LineStyle><color>ff0bb5f5</color><width>3</width></LineStyle>
+      <PolyStyle><color>1a0bb5f5</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Isócrona ${isoMinutes} min ${profileLabel} — ${name}</name>
+      <styleUrl>#isoStyle</styleUrl>
+      ${extData}
+      <Polygon>
+        <outerBoundaryIs><LinearRing>
+          <coordinates>${coords}</coordinates>
+        </LinearRing></outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>`;
+
+  } else {
+    alert('Primero genera un Radio o una Isócrona en el mapa.');
+    return;
+  }
+
+  const blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = (name || 'geoportal') + '_area.kml';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+
+// ============================================================
+//  EXPORTAR KML — Área + Manzanas dentro
+// ============================================================
+function exportarKMLManzanas() {
+  if (!selectedCenter || !MANZANAS_DATA) {
+    alert('Primero genera un Radio o una Isócrona en el mapa.');
+    return;
+  }
+
+  const name = document.getElementById('prospecto-input')?.value || 'Geoportal';
+  let placemarks = '';
+
+  // 1) Área principal (Radio o Isócrona)
+  if (currentMode === 'radio') {
+    const lat = selectedCenter.lat;
+    const lng = selectedCenter.lng;
+    const R   = currentRadius / 1000;
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const angle = (i / 64) * 2 * Math.PI;
+      const dLat  = (R / 111.32) * Math.cos(angle);
+      const dLng  = (R / (111.32 * Math.cos(lat * Math.PI / 180))) * Math.sin(angle);
+      pts.push(`${(lng + dLng).toFixed(6)},${(lat + dLat).toFixed(6)},0`);
+    }
+    placemarks += `
+    <Placemark>
+      <name>Radio ${currentRadius >= 1000 ? (currentRadius/1000).toFixed(1)+' km' : currentRadius+' m'}</name>
+      <styleUrl>#areaStyle</styleUrl>
+      <Polygon><outerBoundaryIs><LinearRing>
+        <coordinates>${pts.join(' ')}</coordinates>
+      </LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>`;
+
+  } else if (currentMode === 'iso' && lastIsoFeature) {
+    const geom = lastIsoFeature.geometry;
+    let outerRing = geom.type === 'Polygon' ? geom.coordinates[0] : geom.coordinates[0][0];
+    const coords = outerRing.map(([lng, lat]) => `${lng.toFixed(6)},${lat.toFixed(6)},0`).join(' ');
+    placemarks += `
+    <Placemark>
+      <name>Isócrona</name>
+      <styleUrl>#areaStyle</styleUrl>
+      <Polygon><outerBoundaryIs><LinearRing>
+        <coordinates>${coords}</coordinates>
+      </LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>`;
+  }
+
+  // 2) Manzanas dentro del área
+  const centerPt = turf.point([selectedCenter.lng, selectedCenter.lat]);
+  const bufferKm = currentRadius / 1000;
+  let mzCount = 0;
+
+  MANZANAS_DATA.features.forEach(f => {
+    try {
+      let dentro = false;
+      const centroid = turf.centroid(f);
+
+      if (currentMode === 'iso' && lastIsoFeature) {
+        dentro = turf.booleanPointInPolygon(centroid, lastIsoFeature);
+      } else {
+        const dist = turf.distance(centerPt, centroid, { units: 'kilometers' });
+        dentro = dist <= bufferKm;
+      }
+
+      if (!dentro) return;
+      mzCount++;
+
+      const p    = f.properties || {};
+      const pop  = parseInt(p.POBTOT) || 0;
+      const geom = f.geometry;
+      if (!geom || geom.type !== 'Polygon') return;
+
+      const coords = geom.coordinates[0]
+        .map(([lng, lat]) => `${lng.toFixed(6)},${lat.toFixed(6)},0`)
+        .join(' ');
+
+      placemarks += `
+    <Placemark>
+      <name>Manzana ${mzCount} · Pob: ${pop}</name>
+      <styleUrl>#mzStyle</styleUrl>
+      <ExtendedData>
+        <Data name="Población"><value>${pop}</value></Data>
+        <Data name="Femenina"><value>${p.POBFEM || 0}</value></Data>
+        <Data name="Masculina"><value>${p.POBMAS || 0}</value></Data>
+      </ExtendedData>
+      <Polygon><outerBoundaryIs><LinearRing>
+        <coordinates>${coords}</coordinates>
+      </LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>`;
+
+    } catch(e) {}
+  });
+
+  if (mzCount === 0) {
+    alert('No se encontraron manzanas dentro del área.');
+    return;
+  }
+
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name} — Área y Manzanas</name>
+    <Style id="areaStyle">
+      <LineStyle><color>ffff0000</color><width>3</width></LineStyle>
+      <PolyStyle><color>220000ff</color></PolyStyle>
+    </Style>
+    <Style id="mzStyle">
+      <LineStyle><color>ff00aaff</color><width>1</width></LineStyle>
+      <PolyStyle><color>2200aaff</color></PolyStyle>
+    </Style>
+    <Folder>
+      <name>Área de análisis</name>${placemarks.split('<Placemark>').slice(1,2).map(p=>'<Placemark>'+p).join('')}
+    </Folder>
+    <Folder>
+      <name>Manzanas (${mzCount})</name>${placemarks.split('<Placemark>').slice(2).map(p=>'<Placemark>'+p).join('')}
+    </Folder>
+  </Document>
+</kml>`;
+
+  const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = (name || 'geoportal') + '_area_manzanas.kml';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+
+// ============================================================
+//  MÓDULO DE DIBUJO DE POLÍGONO
+// ============================================================
+let drawActive     = false;   // dibujando vértices
+let editActive     = false;   // editando vértices
+let drawPoints     = [];      // array de L.LatLng del polígono en construcción
+let previewPolyline = null;   // línea de preview mientras dibuja
+let previewMarkers = [];      // marcadores de los vértices en preview
+let finishedPolygon = null;   // L.Polygon definitivo
+let editMarkers    = [];      // marcadores de edición de vértices
+let polyData       = null;    // GeoJSON del polígono terminado
+
+// ── Colapsar / expandir toolbar ──
+function toggleDrawToolbar() {
+  const body = document.getElementById('draw-tools-body');
+  const icon = document.getElementById('draw-collapse-icon');
+  body.classList.toggle('hidden');
+  icon.classList.toggle('open');
+}
+
+// ── Estilos Leaflet reutilizables ──
+const DRAW_LINE_STYLE  = { color:'#8b5cf6', weight:2.5, dashArray:'6 4', opacity:0.9 };
+const DRAW_POLY_STYLE  = { color:'#8b5cf6', weight:2.5, fillColor:'#8b5cf6', fillOpacity:0.12, opacity:1 };
+
+function _makeVertexMarker(latlng, index) {
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="width:14px;height:14px;background:#8b5cf6;border:2.5px solid #fff;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.5);cursor:grab;margin:-7px 0 0 -7px;"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+  const m = L.marker(latlng, { icon, draggable: true, zIndexOffset: 900 }).addTo(map);
+
+  m.on('drag', (e) => {
+    const ll = e.latlng;
+    polyData.geometry.coordinates[0][index] = [ll.lng, ll.lat];
+    // si es el primer vértice, actualizar también el último (cierre del anillo)
+    if (index === 0) {
+      polyData.geometry.coordinates[0][polyData.geometry.coordinates[0].length - 1] = [ll.lng, ll.lat];
+    }
+    finishedPolygon.setLatLngs(_coordsToLatLngs(polyData.geometry.coordinates[0].slice(0, -1)));
+  });
+
+  m.on('dragend', () => { calcPolyStats(); });
+
+  // Evitar que el click sobre el marcador dispare el handler global del mapa
+  m.on('click', (e) => { L.DomEvent.stopPropagation(e); });
+
+  return m;
+}
+
+function _coordsToLatLngs(coords) {
+  return coords.map(([lng, lat]) => L.latLng(lat, lng));
+}
+
+function _setDrawBtns(drawing) {
+  document.getElementById('dtool-draw').classList.toggle('active', drawing);
+  document.getElementById('dtool-finish').style.display = drawing ? 'flex' : 'none';
+  // map cursor
+  map.getContainer().style.cursor = drawing ? 'crosshair' : '';
+}
+
+function _setEditBtns(editing) {
+  document.getElementById('dtool-edit').classList.toggle('active', editing);
+}
+
+// ── Iniciar dibujo ──
+function startDrawPolygon() {
+  if (editActive) stopEdit();
+  if (drawActive) { cancelDraw(); return; }
+
+  // Si ya había polígono, limpiar
+  if (finishedPolygon) clearPolygon();
+
+  drawActive = true;
+  drawPoints = [];
+  _setDrawBtns(true);
+  showHint('Clic para agregar punto  ·  Doble clic para cerrar  ·  Esc para cancelar');
+
+  map.on('click', onDrawClick);
+  map.on('dblclick', onDrawDblClick);
+  document.addEventListener('keydown', onDrawKeydown);
+}
+
+function onDrawClick(e) {
+  if (!drawActive) return;
+  drawPoints.push(e.latlng);
+  _refreshPreview();
+}
+
+function onDrawDblClick(e) {
+  if (!drawActive || drawPoints.length < 2) return;
+  L.DomEvent.stop(e);
+  // El dblclick añade el punto del primer click también; eliminar duplicado
+  drawPoints.pop();
+  finishDrawPolygon();
+}
+
+function onDrawKeydown(e) {
+  if (e.key === 'Escape') cancelDraw();
+  if ((e.key === 'Enter' || e.key === 'z') && drawPoints.length >= 3) finishDrawPolygon();
+}
+
+function _refreshPreview() {
+  // Limpiar preview anterior
+  if (previewPolyline) { map.removeLayer(previewPolyline); previewPolyline = null; }
+  previewMarkers.forEach(m => map.removeLayer(m));
+  previewMarkers = [];
+
+  if (drawPoints.length === 0) return;
+
+  previewPolyline = L.polyline(drawPoints, DRAW_LINE_STYLE).addTo(map);
+  drawPoints.forEach((latlng, i) => {
+    const m = L.circleMarker(latlng, { radius: 4, color:'#fff', weight:1.5, fillColor:'#8b5cf6', fillOpacity:1 }).addTo(map);
+    previewMarkers.push(m);
+  });
+}
+
+function cancelDraw() {
+  drawActive = false;
+  map.off('click', onDrawClick);
+  map.off('dblclick', onDrawDblClick);
+  document.removeEventListener('keydown', onDrawKeydown);
+  if (previewPolyline) { map.removeLayer(previewPolyline); previewPolyline = null; }
+  previewMarkers.forEach(m => map.removeLayer(m)); previewMarkers = [];
+  drawPoints = [];
+  _setDrawBtns(false);
+  hideHint();
+}
+
+// ── Cerrar polígono ──
+function finishDrawPolygon() {
+  if (!drawActive || drawPoints.length < 3) {
+    showHint('Necesitas al menos 3 puntos para cerrar el polígono', 2000);
+    return;
+  }
+
+  map.off('click', onDrawClick);
+  map.off('dblclick', onDrawDblClick);
+  document.removeEventListener('keydown', onDrawKeydown);
+
+  if (previewPolyline) { map.removeLayer(previewPolyline); previewPolyline = null; }
+  previewMarkers.forEach(m => map.removeLayer(m)); previewMarkers = [];
+
+  drawActive = false;
+  _setDrawBtns(false);
+
+  // Construir GeoJSON
+  const coords = drawPoints.map(p => [p.lng, p.lat]);
+  coords.push(coords[0]); // cerrar anillo
+  polyData = { type:'Feature', geometry:{ type:'Polygon', coordinates:[coords] }, properties:{} };
+
+  // Renderizar polígono en mapa
+  finishedPolygon = L.polygon(drawPoints, DRAW_POLY_STYLE).addTo(map);
+
+  // Activar botones
+  document.getElementById('dtool-edit').disabled = false;
+  document.getElementById('dtool-clear').disabled = false;
+  document.getElementById('dtool-kml').disabled = false;
+  document.getElementById('dtool-geojson').disabled = false;
+
+  calcPolyStats();
+  hideHint();
+}
+
+// ── Editar vértices ──
+function startEditPolygon() {
+  if (!finishedPolygon) return;
+  if (editActive) { stopEdit(); return; }
+
+  editActive = true;
+  _setEditBtns(true);
+  showHint('Arrastra los puntos para mover vértices  ·  Clic en "Editar" para terminar');
+
+  // Mostrar marcadores editables
+  const coords = polyData.geometry.coordinates[0].slice(0, -1);
+  coords.forEach((coord, i) => {
+    editMarkers.push(_makeVertexMarker(L.latLng(coord[1], coord[0]), i));
+  });
+}
+
+function stopEdit() {
+  editActive = false;
+  _setEditBtns(false);
+  editMarkers.forEach(m => map.removeLayer(m));
+  editMarkers = [];
+  // Reconstruir polígono con coords actualizadas
+  if (finishedPolygon && polyData) {
+    const latlngs = _coordsToLatLngs(polyData.geometry.coordinates[0].slice(0, -1));
+    finishedPolygon.setLatLngs(latlngs);
+    calcPolyStats();
+  }
+  hideHint();
+}
+
+// ── Limpiar todo ──
+function clearPolygon() {
+  cancelDraw();
+  stopEdit();
+  if (finishedPolygon) { map.removeLayer(finishedPolygon); finishedPolygon = null; }
+  editMarkers.forEach(m => map.removeLayer(m)); editMarkers = [];
+  polyData = null;
+
+  document.getElementById('dtool-edit').disabled = true;
+  document.getElementById('dtool-clear').disabled = true;
+  document.getElementById('dtool-kml').disabled = true;
+  document.getElementById('dtool-geojson').disabled = true;
+  document.getElementById('poly-stats-panel').style.display = 'none';
+}
+
+// ── Calcular estadísticas del polígono ──
+function calcPolyStats() {
+  if (!polyData || !MANZANAS_DATA) return;
+
+  const poly = polyData;
+  const C = getConsumo();
+  let pobTot = 0, pobFem = 0, pobMas = 0, mzCount = 0;
+
+  MANZANAS_DATA.features.forEach(f => {
+    try {
+      const centroid = turf.centroid(f);
+      if (!turf.booleanPointInPolygon(centroid, poly)) return;
+      mzCount++;
+      const p = f.properties || {};
+      pobTot += parseInt(p.POBTOT) || 0;
+      pobFem += parseInt(p.POBFEM) || 0;
+      pobMas += parseInt(p.POBMAS) || 0;
+    } catch(e) {}
+  });
+
+  const areaKm2 = turf.area(poly) / 1e6;
+  const densidad = areaKm2 > 0 ? pobTot / areaKm2 : 0;
+  const hogares  = pobTot / 3.5;
+  const resSem   = hogares * C.RES   * 7;
+  const cerdoSem = hogares * C.CERDO * 7;
+  const polloSem = hogares * C.POLLO * 7;
+  const totalSem = resSem + cerdoSem + polloSem;
+  const verts    = polyData.geometry.coordinates[0].length - 1;
+
+  // Actualizar panel
+  const panel = document.getElementById('poly-stats-panel');
+  panel.style.display = 'block';
+  document.getElementById('psp-pob').textContent     = pobTot.toLocaleString('es-MX');
+  document.getElementById('psp-area').textContent    = areaKm2.toFixed(3) + ' km²';
+  document.getElementById('psp-mzs').textContent     = mzCount.toLocaleString('es-MX');
+  document.getElementById('psp-mercado').textContent = Math.round(totalSem).toLocaleString('es-MX') + ' kg';
+  document.getElementById('psp-res').textContent     = Math.round(resSem/1000*10)/10 + ' t';
+  document.getElementById('psp-cerdo').textContent   = Math.round(cerdoSem/1000*10)/10 + ' t';
+  document.getElementById('psp-pollo').textContent   = Math.round(polloSem/1000*10)/10 + ' t';
+  document.getElementById('psp-dens').textContent    = Math.round(densidad).toLocaleString('es-MX') + ' hab/km²';
+  document.getElementById('psp-verts').textContent   = verts;
+}
+
+// ── Exportar KML del polígono ──
+function exportPolyKML() {
+  if (!polyData) return;
+  const name = document.getElementById('prospecto-input')?.value || 'Polígono';
+  const coords = polyData.geometry.coordinates[0]
+    .map(([lng, lat]) => `${lng.toFixed(6)},${lat.toFixed(6)},0`).join(' ');
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${name} — Polígono dibujado</name>
+    <Style id="polyStyle">
+      <LineStyle><color>ff8b4cf6</color><width>3</width></LineStyle>
+      <PolyStyle><color>1a8b4cf6</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>${name}</name>
+      <styleUrl>#polyStyle</styleUrl>
+      <Polygon><outerBoundaryIs><LinearRing>
+        <coordinates>${coords}</coordinates>
+      </LinearRing></outerBoundaryIs></Polygon>
+    </Placemark>
+  </Document>
+</kml>`;
+  _downloadBlob(kml, 'application/vnd.google-earth.kml+xml', `${name}_poligono.kml`);
+}
+
+// ── Exportar GeoJSON del polígono ──
+function exportPolyGeoJSON() {
+  if (!polyData) return;
+  const name = document.getElementById('prospecto-input')?.value || 'Polígono';
+  const pob  = document.getElementById('psp-pob')?.textContent || '—';
+  const area = document.getElementById('psp-area')?.textContent || '—';
+  const fc = {
+    type: 'FeatureCollection',
+    features: [{
+      ...polyData,
+      properties: { nombre: name, poblacion: pob, area_km2: area, fecha: new Date().toISOString().slice(0,10) }
+    }]
+  };
+  _downloadBlob(JSON.stringify(fc, null, 2), 'application/geo+json', `${name}_poligono.geojson`);
+}
+
+function _downloadBlob(content, mime, filename) {
+  const blob = new Blob([content], { type: mime });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+
+// ── Helpers hint ──
+let _hintTimer = null;
+function showHint(msg, autoDismiss) {
+  const el = document.getElementById('draw-hint');
+  el.textContent = msg;
+  el.classList.add('show');
+  if (_hintTimer) clearTimeout(_hintTimer);
+  if (autoDismiss) _hintTimer = setTimeout(hideHint, autoDismiss);
+}
+function hideHint() {
+  document.getElementById('draw-hint').classList.remove('show');
+}
+
+</script>
+</body>
+</html>

@@ -35,6 +35,8 @@
 <!-- jsPDF + html2canvas para exportar PDF -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- Pako: fallback para descomprimir .gz en navegadores sin DecompressionStream -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
 <!-- Fonts -->
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 
@@ -2580,6 +2582,30 @@ function updateLegend(expendiosDentro, mzaBaja, mzaMedia, mzaAlta, mzaTotal) {
 }
 
 // ============================================================
+//  TOAST DE ERROR VISIBLE
+// ============================================================
+function showToastError(msg) {
+  let toast = document.getElementById('_errToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = '_errToast';
+    toast.style.cssText = [
+      'position:fixed','bottom:80px','left:50%','transform:translateX(-50%)',
+      'z-index:9999','background:rgba(239,68,68,0.95)','color:#fff',
+      'font-family:var(--font-mono)','font-size:12px','font-weight:600',
+      'padding:10px 20px','border-radius:10px','max-width:420px','text-align:center',
+      'box-shadow:0 4px 24px rgba(0,0,0,0.5)','pointer-events:none',
+      'transition:opacity 0.4s'
+    ].join(';');
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.style.opacity = '1';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toast.style.opacity = '0'; }, 8000);
+}
+
+// ============================================================
 //  BOOTSTRAP
 // ============================================================
 async function bootstrap() {
@@ -2622,30 +2648,58 @@ async function bootstrap() {
     const urlMza = 'https://cdn.jsdelivr.net/gh/OlmedoAlberto/geoportal-bajio@main/Bajio_Manzanas.json.gz';
     const resMza = await fetch(urlMza);
     if (resMza.ok) {
-      const ds = new DecompressionStream('gzip');
-      const decompressed = resMza.body.pipeThrough(ds);
-      const reader = decompressed.getReader();
-      const chunks = [];
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(value);
-      }
-      const blob = new Blob(chunks);
-      const text = await blob.text();
-      const mzaData = JSON.parse(text);
-      loadManzanas(mzaData);
-      if (mzaData.features && mzaData.features.length > 0) {
+      const arrayBuffer = await resMza.arrayBuffer();
+      let mzaData = null;
+
+      // Intentar primero con DecompressionStream (Chrome/Edge modernos)
+      if (typeof DecompressionStream !== 'undefined') {
         try {
-          const bounds = L.geoJSON(mzaData).getBounds();
-          map.fitBounds(bounds, { padding: [60, 60] });
-        } catch(e) {}
+          const ds = new DecompressionStream('gzip');
+          const stream = new Response(arrayBuffer).body.pipeThrough(ds);
+          const reader = stream.getReader();
+          const chunks = [];
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+          }
+          const blob = new Blob(chunks);
+          const text = await blob.text();
+          mzaData = JSON.parse(text);
+        } catch(dsErr) {
+          console.warn('DecompressionStream fallo, usando pako:', dsErr.message);
+          mzaData = null;
+        }
+      }
+
+      // Fallback con pako (Firefox, Safari, navegadores mas antiguos)
+      if (!mzaData && typeof pako !== 'undefined') {
+        const uint8 = new Uint8Array(arrayBuffer);
+        const decompressed = pako.inflate(uint8);
+        const text = new TextDecoder('utf-8').decode(decompressed);
+        mzaData = JSON.parse(text);
+      }
+
+      if (mzaData) {
+        loadManzanas(mzaData);
+        if (mzaData.features && mzaData.features.length > 0) {
+          try {
+            const bounds = L.geoJSON(mzaData).getBounds();
+            map.fitBounds(bounds, { padding: [60, 60] });
+          } catch(e) {}
+        }
+        console.log('Bajio_Manzanas cargado:', mzaData.features ? mzaData.features.length : 0, 'features');
+      } else {
+        console.error('No se pudo descomprimir Bajio_Manzanas.json.gz');
+        showToastError('No se pudo cargar la capa de manzanas (error de descompresion).');
       }
     } else {
-      console.warn('Bajio_Manzanas.json.gz no encontrado.');
+      console.warn('Bajio_Manzanas.json.gz no encontrado. HTTP:', resMza.status);
+      showToastError('Archivo de manzanas no encontrado (HTTP ' + resMza.status + ').');
     }
   } catch(e) {
     console.warn('No se pudo cargar Bajio_Manzanas.json.gz:', e.message);
+    showToastError('Error al cargar manzanas: ' + e.message);
   }
 
   // Ocultar loader — siempre, independientemente de si cargaron los archivos
